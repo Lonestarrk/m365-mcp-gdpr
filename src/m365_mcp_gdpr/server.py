@@ -15,6 +15,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from . import audit
 from .graph import Auth, Graph
 from .redact import Redactor
 
@@ -49,7 +50,17 @@ R = Redactor(
     extra_names=_load_list("REDACT_NAMES"),
     use_ner=os.environ.get("REDACT_USE_NER") == "1",
 )
+AUDIT = audit.AuditLog(R)
 _graph: Graph | None = None
+
+
+def tool() -> Any:
+    """Register an MCP tool whose calls show up on the audit page when enabled."""
+
+    def register(fn: Any) -> Any:
+        return mcp.tool()(AUDIT.wrap(fn))
+
+    return register
 
 
 def graph() -> Graph:
@@ -98,7 +109,7 @@ def _recipients(addresses: list[str] | None) -> list[dict]:
 
 # ---- tools --------------------------------------------------------------
 
-@mcp.tool()
+@tool()
 def list_folders() -> list[dict]:
     """Lista mappar i brevlådan med antal (olästa) meddelanden."""
     return [
@@ -108,7 +119,7 @@ def list_folders() -> list[dict]:
     ]
 
 
-@mcp.tool()
+@tool()
 def list_messages(folder: str = "inbox", top: int = 20, skip: int = 0, unread_only: bool = False) -> list[dict]:
     """Lista meddelanden i en mapp, nyast först.
 
@@ -118,14 +129,14 @@ def list_messages(folder: str = "inbox", top: int = 20, skip: int = 0, unread_on
     return [_summary(m) for m in graph().list_messages(folder, top, skip, unread_only)]
 
 
-@mcp.tool()
+@tool()
 def search_messages(query: str, top: int = 20) -> list[dict]:
     """Fritextsök i hela brevlådan. Tokens som [[PERSON_1]] får användas i söksträngen."""
     top = max(1, min(top, 50))
     return [_summary(m) for m in graph().search(R.restore(query), top)]
 
 
-@mcp.tool()
+@tool()
 def read_message(message_id: str) -> dict:
     """Läs ett helt meddelande (pseudonymiserat). Bilagornas innehåll hämtas inte."""
     m = graph().get_message(message_id)
@@ -150,35 +161,35 @@ def read_message(message_id: str) -> dict:
     }
 
 
-@mcp.tool()
+@tool()
 def mark_read(message_id: str, is_read: bool = True) -> str:
     """Markera ett meddelande som läst eller oläst."""
     graph().update_message(message_id, {"isRead": is_read})
     return "ok"
 
 
-@mcp.tool()
+@tool()
 def flag_message(message_id: str, flagged: bool = True) -> str:
     """Flagga eller avflagga ett meddelande för uppföljning."""
     graph().update_message(message_id, {"flag": {"flagStatus": "flagged" if flagged else "notFlagged"}})
     return "ok"
 
 
-@mcp.tool()
+@tool()
 def set_categories(message_id: str, categories: list[str]) -> str:
     """Sätt Outlook-kategorier på ett meddelande (ersätter befintliga)."""
     graph().update_message(message_id, {"categories": categories})
     return "ok"
 
 
-@mcp.tool()
+@tool()
 def move_message(message_id: str, destination: str) -> dict:
     """Flytta ett meddelande. destination: mapp-id eller välkänt namn (archive, deleteditems, inbox …)."""
     m = graph().move(message_id, destination)
     return {"id": m["id"]}
 
 
-@mcp.tool()
+@tool()
 def create_draft(subject: str, body: str, to: list[str] | None = None, cc: list[str] | None = None) -> dict:
     """Skapa ett nytt utkast i Utkast-mappen. Skickas INTE.
 
@@ -194,14 +205,14 @@ def create_draft(subject: str, body: str, to: list[str] | None = None, cc: list[
     return {"id": d["id"], "status": "Utkast sparat i Outlook – granska och skicka själv."}
 
 
-@mcp.tool()
+@tool()
 def create_reply_draft(message_id: str, body: str, reply_all: bool = False) -> dict:
     """Skapa ett svarsutkast på ett befintligt meddelande. Skickas INTE."""
     d = graph().create_reply_draft(message_id, R.restore(body), reply_all)
     return {"id": d["id"], "status": "Svarsutkast sparat i Outlook – granska och skicka själv."}
 
 
-@mcp.tool()
+@tool()
 def update_draft(
     draft_id: str,
     subject: str | None = None,
@@ -224,7 +235,7 @@ def update_draft(
     return "ok"
 
 
-@mcp.tool()
+@tool()
 def delete_draft(draft_id: str) -> str:
     """Radera ett utkast. Fungerar bara på utkast, aldrig på mottagna mejl."""
     _require_draft(draft_id)
@@ -264,7 +275,7 @@ def _check_local(local_path: str) -> Path:
     return path
 
 
-@mcp.tool()
+@tool()
 def sharepoint_upload_release(local_path: str, subfolder: str | None = None, overwrite: bool = False) -> dict:
     """Ladda upp en lokal fil (t.ex. release-zip) till den förbestämda SharePoint-mappen.
 
@@ -279,7 +290,7 @@ def sharepoint_upload_release(local_path: str, subfolder: str | None = None, ove
     return {"name": item.get("name"), "path": target, "size": item.get("size"), "web_url": item.get("webUrl")}
 
 
-@mcp.tool()
+@tool()
 def sharepoint_list_releases(subfolder: str | None = None, top: int = 50) -> list[dict]:
     """Lista filer och mappar i den förbestämda SharePoint-mappen, senast ändrade först."""
     site, drive_name, folder = _sp_config()
@@ -312,6 +323,10 @@ def main() -> None:
         removed = Auth().logout()
         print("Utloggad: " + (", ".join(removed) or "inga konton"), file=sys.stderr)
         return
+    if audit.enabled():
+        AUDIT.active = True
+        page = audit.AuditServer(AUDIT, int(os.environ.get("M365_MCP_AUDIT_PORT", "0")))
+        page.start(open_browser=os.environ.get("M365_MCP_AUDIT_OPEN", "1") != "0")
     mcp.run("stdio")
 
 

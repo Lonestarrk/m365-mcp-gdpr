@@ -38,7 +38,7 @@ def sent():
             return httpx.Response(201, json={"id": "draft1"})
         return httpx.Response(404, json={"error": {"code": "NotFound", "message": "x"}})
 
-    server.R.vault.clear()
+    server.R.reset()
     server._graph = Graph(auth=FakeAuth(), transport=httpx.MockTransport(handler))
     yield calls
     server._graph = None

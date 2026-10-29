@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M365 granskning</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6676; --line: #dfe3ea;
+    --token-bg: #e6efff; --token-fg: #1f4fbf; --orig-bg: #fff1c2; --orig-fg: #5c4300;
+    --err: #b42318; --err-bg: #fde8e7; --accent: #1f4fbf;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b1f27; --text: #e6e9ef; --muted: #9aa3b2; --line: #2c323d;
+      --token-bg: #1d2c4d; --token-fg: #a9c3ff; --orig-bg: #4a3b0a; --orig-fg: #ffe28a;
+      --err: #ff8a80; --err-bg: #3a1c1b; --accent: #a9c3ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 1; background: var(--panel);
+           border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  .bar { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  h1 { font-size: 16px; margin: 0; flex: 1 1 auto; }
+  .note { color: var(--muted); font-size: 13px; width: 100%; margin: 0; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--text);
+           border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .stats { color: var(--muted); font-size: 13px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+  .empty { color: var(--muted); text-align: center; padding: 48px 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .card.error { border-color: var(--err); }
+  .head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 10px 14px;
+          border-bottom: 1px solid var(--line); }
+  .tool { font-weight: 600; font-family: ui-monospace, Consolas, monospace; }
+  .time { color: var(--muted); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+  .chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--token-bg); color: var(--token-fg); }
+  .chip.err { background: var(--err-bg); color: var(--err); }
+  section { padding: 10px 14px; }
+  section + section { border-top: 1px dashed var(--line); }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 6px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cols.single { grid-template-columns: 1fr; }
+  h3 { font-size: 12px; font-weight: 600; margin: 0 0 4px; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto;
+        font: 12.5px/1.5 ui-monospace, Consolas, monospace; background: var(--bg);
+        border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  .tok { background: var(--token-bg); color: var(--token-fg); border-radius: 4px; padding: 0 2px; }
+  .orig { background: var(--orig-bg); color: var(--orig-fg); border-radius: 4px; padding: 0 2px; }
+  .hide-orig .original { display: none; }
+  .hide-orig .cols { grid-template-columns: 1fr; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Granskning: vad Claude får se</h1>
+    <span class="stats" id="stats">0 anrop</span>
+    <label><input type="checkbox" id="showOrig" checked> Visa original</label>
+    <button id="pause">Pausa</button>
+    <button id="clear">Rensa</button>
+    <p class="note">Vänster: exakt det servern skickade till Claude. Höger (gul markering): originalvärdena,
+      som bara finns i minnet på den här datorn och aldrig skickas vidare. Inget sparas på disk.</p>
+  </div>
+</header>
+<main id="list"><p class="empty" id="empty">Inga anrop än. Be Claude använda M365-verktygen, så dyker de upp här.</p></main>
+<script>
+(() => {
+  const key = new URLSearchParams(location.search).get("k") || "";
+  const list = document.getElementById("list");
+  const empty = document.getElementById("empty");
+  const stats = document.getElementById("stats");
+  const pauseBtn = document.getElementById("pause");
+  let after = 0, paused = false, calls = 0;
+
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+
+  // Data is always inserted as text nodes, never as HTML.
+  const render = (segs, original) => {
+    const pre = el("pre");
+    for (const s of segs) {
+      if (s.text !== undefined) { pre.appendChild(document.createTextNode(s.text)); continue; }
+      if (original && s.value != null) {
+        const m = el("mark", "orig", s.value); m.title = s.token; pre.appendChild(m);
+      } else {
+        const m = el("span", "tok", s.token);
+        if (s.value == null) m.title = "Okänd token";
+        pre.appendChild(m);
+      }
+    }
+    return pre;
+  };
+
+  const pair = (title, segs, leftLabel, rightLabel) => {
+    const sec = el("section");
+    sec.appendChild(el("h2", null, title));
+    const hasTokens = segs.some(s => s.token);
+    const cols = el("div", hasTokens ? "cols" : "cols single");
+    const left = el("div");
+    left.appendChild(el("h3", null, leftLabel));
+    left.appendChild(render(segs, false));
+    cols.appendChild(left);
+    if (hasTokens) {
+      const right = el("div", "original");
+      right.appendChild(el("h3", null, rightLabel));
+      right.appendChild(render(segs, true));
+      cols.appendChild(right);
+    }
+    sec.appendChild(cols);
+    return sec;
+  };
+
+  const card = (e) => {
+    const c = el("article", e.error ? "card error" : "card");
+    const head = el("div", "head");
+    head.appendChild(el("span", "tool", e.tool));
+    head.appendChild(el("span", "time", new Date(e.time).toLocaleString("sv-SE")));
+    const chips = el("div", "chips");
+    if (e.error) chips.appendChild(el("span", "chip err", "fel"));
+    const counts = {};
+    for (const s of e.args.concat(e.result)) if (s.kind) counts[s.kind] = (counts[s.kind] || 0) + 1;
+    for (const [k, n] of Object.entries(counts).sort()) chips.appendChild(el("span", "chip", `${n} × ${k}`));
+    head.appendChild(chips);
+    c.appendChild(head);
+    c.appendChild(pair("Anrop från Claude", e.args, "Som Claude skrev", "Till Microsoft"));
+    c.appendChild(pair(e.error ? "Fel till Claude" : "Svar till Claude", e.result, "Claude såg", "Original"));
+    return c;
+  };
+
+  const poll = async () => {
+    if (!paused) {
+      try {
+        const r = await fetch(`/events?k=${encodeURIComponent(key)}&after=${after}`, { cache: "no-store" });
+        if (r.ok) {
+          for (const e of await r.json()) {
+            empty.hidden = true;
+            list.insertBefore(card(e), list.firstChild === empty ? empty.nextSibling : list.firstChild);
+            after = Math.max(after, e.id);
+            calls++;
+          }
+          stats.textContent = `${calls} anrop`;
+        } else {
+          stats.textContent = "Servern svarar inte (har Claude Code stängts?)";
+        }
+      } catch { stats.textContent = "Servern svarar inte (har Claude Code stängts?)"; }
+    }
+    setTimeout(poll, 1500);
+  };
+
+  document.getElementById("showOrig").addEventListener("change", (ev) => {
+    document.body.classList.toggle("hide-orig", !ev.target.checked);
+  });
+  pauseBtn.addEventListener("click", () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? "Fortsätt" : "Pausa";
+  });
+  document.getElementById("clear").addEventListener("click", async () => {
+    await fetch(`/clear?k=${encodeURIComponent(key)}`, { method: "POST" });
+    for (const c of [...list.querySelectorAll(".card")]) c.remove();
+    empty.hidden = false;
+    calls = 0;
+    stats.textContent = "0 anrop";
+  });
+  poll();
+})();
+</script>
+</body>
+</html>

@@ -161,6 +161,12 @@ class Redactor:
         for name in extra_names:
             self.register_person(name)
 
+    def reset(self) -> None:
+        """Forget every token mapping and learned name."""
+        with self._lock:
+            self._name_parts.clear()
+        self.vault.clear()
+
     # ---- registration -------------------------------------------------
 
     def register_person(self, name: str | None, email: str | None = None) -> None:

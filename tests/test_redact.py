@@ -67,3 +67,11 @@ def test_allowlist():
     r = Redactor(allowlist=["Matilda Foodtech"])
     r.register_person("Matilda Foodtech")
     assert r.redact("Från Matilda Foodtech") == "Från Matilda Foodtech"
+
+
+def test_reset_forgets_names():
+    r = make()
+    r.redact("Hej Anna")
+    r.reset()
+    r.register_person("Anna Svensson")
+    assert r.restore(r.redact("Hej Anna")) == "Hej Anna"

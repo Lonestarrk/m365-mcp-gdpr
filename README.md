@@ -20,6 +20,8 @@ för att läsa/skriva mejl, så servern pratar direkt med Microsoft Graph.
 | `sharepoint_upload_release` | Ladda upp en lokal fil (t.ex. release-zip) till en förbestämd SharePoint-mapp |
 | `sharepoint_list_releases` | Lista filer i release-mappen, med länkar |
 
+Valfritt: en lokal [granskningssida](#granskningssida-valfri) som visar exakt vad Claude får.
+
 Servern **kan inte skicka mejl**. Den begär `Mail.ReadWrite`, `Sites.ReadWrite.All`
 och `User.Read` – men inte `Mail.Send`, så den saknar tekniskt behörighet att skicka. Alla utkast granskas och skickas av
 en människa i Outlook. `delete_draft` vägrar radera något som inte är ett utkast.
@@ -184,6 +186,32 @@ Lägg till i `claude_desktop_config.json` och starta om Claude Desktop:
 }
 ```
 
+## Granskningssida (valfri)
+
+Vill du se exakt vad Claude får, kan servern visa en lokal webbsida med varje anrop
+sida vid sida: till vänster det tvättade som skickades till Claude (tokens i blått),
+till höger originalet med de tvättade delarna markerade (gult). För utkast syns även
+vad som skickas vidare till Microsoft efter att tokens bytts tillbaka.
+
+![Granskningssidan](docs/audit.png)
+
+Slå på den genom att lägga till `-e M365_MCP_AUDIT=1` i `claude mcp add`. När Claude Code
+startar servern öppnas sidan automatiskt i webbläsaren.
+
+Eftersom sidan visar riktiga personuppgifter är den skyddad:
+
+- **Avstängd som standard.** Ingenting registreras när den är av.
+- **Bara din dator.** Den lyssnar bara på `127.0.0.1` och avvisar andra adresser.
+- **Hemlig länk.** Adressen innehåller en slumpad nyckel som byts vid varje start.
+  Länken skickas aldrig till Claude.
+- **Inget på disk.** De senaste 200 anropen finns bara i minnet och försvinner när
+  servern stängs. Knappen *Rensa* tömmer dem direkt.
+
+Sidan visar det som går via den här servern. Vill du se *all* trafik från Claude Code
+till Anthropic (det du skriver, filer Claude läser osv.) kan du köra Claude Code genom
+en lokal proxy som [mitmproxy](https://mitmproxy.org): sätt `HTTPS_PROXY=http://127.0.0.1:8080`
+och `NODE_EXTRA_CA_CERTS` till mitmproxys certifikat innan du startar `claude`.
+
 ## SharePoint-releaser
 
 Servern kan lägga releaser som Claude Code byggt i en fast SharePoint-mapp, så att
@@ -213,6 +241,9 @@ Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
 | `SHAREPOINT_DRIVE` | Dokumentbibliotekets namn (standard: webbplatsens standardbibliotek) |
 | `SHAREPOINT_FOLDER` | Mappen releaser laddas upp till, t.ex. `Releases/MinApp` |
 | `SHAREPOINT_UPLOAD_ROOTS` | Valfritt. Kommaseparerade lokala mappar som får laddas upp från – rekommenderas, så att Claude inte kan ladda upp andra filer |
+| `M365_MCP_AUDIT` | `1` = starta granskningssidan (se ovan) |
+| `M365_MCP_AUDIT_PORT` | Fast port för granskningssidan (standard: slumpad ledig port) |
+| `M365_MCP_AUDIT_OPEN` | `0` = öppna inte webbläsaren automatiskt; länken skrivs i serverns logg |
 | `REDACT_USE_NER` | `1` = aktivera spaCy-NER. Kräver `pip install 'm365-mcp-gdpr[ner]'` och `python -m spacy download sv_core_news_sm` |
 
 ## Utveckling
