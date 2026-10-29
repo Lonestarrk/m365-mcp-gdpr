@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from m365_mcp_gdpr import graph
@@ -67,4 +69,5 @@ def test_cache_falls_back_to_private_file(monkeypatch, tmp_path):
     monkeypatch.setattr(graph, "build_encrypted_persistence", no_secret_store)
     cache = graph._token_cache()
     assert cache is not None
-    assert (tmp_path / "token_cache.bin").stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # Windows has no Unix file modes
+        assert (tmp_path / "token_cache.bin").stat().st_mode & 0o777 == 0o600

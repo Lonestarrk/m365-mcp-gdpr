@@ -148,8 +148,10 @@ bakgrunden. Den håller så länge du använder den regelbundet – som standard
 efter 90 dagar utan användning. Er IT kan ha regler (Conditional Access, "sign-in
 frequency") som kräver ny inloggning oftare; det styrs av organisationen, inte av servern.
 
-Inloggningen öppnas automatiskt första gången Claude använder servern. Vill du hellre
-logga in i förväg, kör i en terminal (macOS/Linux):
+Inloggningen öppnas automatiskt första gången Claude använder servern. **På Windows
+rekommenderas att logga in i förväg** i ett terminalfönster: när Claude Code startar
+servern i bakgrunden kan kontorutan hamna bakom andra fönster. Efter första
+inloggningen sker allt tyst. Kör i en terminal (macOS/Linux):
 
 ```bash
 M365_MCP_CLIENT_ID=<client-id> M365_MCP_TENANT_ID=<tenant-id> m365-mcp-gdpr login
