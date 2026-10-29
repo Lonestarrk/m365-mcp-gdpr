@@ -26,6 +26,10 @@ eller [[EMAIL_2]]. Försök aldrig gissa vad som döljs bakom en token.
 När du skriver utkast eller söker: använd tokens ordagrant, så ersätts de med
 riktiga värden innan utkastet sparas i Outlook. Servern kan inte skicka mejl –
 den skapar endast utkast som användaren själv granskar och skickar.
+
+Servern kan också ladda upp releasefiler till en förbestämd SharePoint-mapp
+(sharepoint_upload_release) och lista vad som ligger där. Packa gärna en release
+som en enda zip-fil innan uppladdning.
 """
 
 mcp = MCPServer("outlook-gdpr", instructions=INSTRUCTIONS)
@@ -226,6 +230,66 @@ def delete_draft(draft_id: str) -> str:
     _require_draft(draft_id)
     graph().delete(draft_id)
     return "ok"
+
+
+# ---- SharePoint releases --------------------------------------------------
+
+def _sp_config() -> tuple[str, str, str]:
+    site = os.environ.get("SHAREPOINT_SITE", "").strip()
+    folder = os.environ.get("SHAREPOINT_FOLDER", "").strip().strip("/")
+    if not site or not folder:
+        raise RuntimeError(
+            "SharePoint är inte konfigurerat. Sätt SHAREPOINT_SITE "
+            "(t.ex. 'contoso.sharepoint.com:/sites/Utveckling') och SHAREPOINT_FOLDER."
+        )
+    return site, os.environ.get("SHAREPOINT_DRIVE", "").strip(), folder
+
+
+def _safe_subfolder(subfolder: str | None) -> str:
+    if not subfolder:
+        return ""
+    parts = [p for p in subfolder.replace("\\", "/").split("/") if p]
+    if any(p in (".", "..") for p in parts):
+        raise ValueError("Undermappen får inte innehålla '.' eller '..'.")
+    return "/".join(parts)
+
+
+def _check_local(local_path: str) -> Path:
+    path = Path(local_path).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError(f"Hittar ingen fil: {local_path}")
+    roots = [Path(r).expanduser().resolve() for r in _load_list("SHAREPOINT_UPLOAD_ROOTS")]
+    if roots and not any(path.is_relative_to(r) for r in roots):
+        raise ValueError("Filen ligger utanför de mappar som får laddas upp (SHAREPOINT_UPLOAD_ROOTS).")
+    return path
+
+
+@mcp.tool()
+def sharepoint_upload_release(local_path: str, subfolder: str | None = None, overwrite: bool = False) -> dict:
+    """Ladda upp en lokal fil (t.ex. release-zip) till den förbestämda SharePoint-mappen.
+
+    subfolder: valfri undermapp, t.ex. versionsnummer ("v1.4.0"). Skapas vid behov.
+    overwrite: ersätt en befintlig fil med samma namn (annars avbryts uppladdningen).
+    """
+    site, drive_name, folder = _sp_config()
+    path = _check_local(local_path)
+    target = "/".join(p for p in (folder, _safe_subfolder(subfolder), path.name) if p)
+    g = graph()
+    item = g.upload(g.drive_id(site, drive_name), target, path.read_bytes(), overwrite)
+    return {"name": item.get("name"), "path": target, "size": item.get("size"), "web_url": item.get("webUrl")}
+
+
+@mcp.tool()
+def sharepoint_list_releases(subfolder: str | None = None, top: int = 50) -> list[dict]:
+    """Lista filer och mappar i den förbestämda SharePoint-mappen, senast ändrade först."""
+    site, drive_name, folder = _sp_config()
+    target = "/".join(p for p in (folder, _safe_subfolder(subfolder)) if p)
+    g = graph()
+    return [
+        {"name": i["name"], "type": "folder" if "folder" in i else "file", "size": i.get("size"),
+         "modified": i.get("lastModifiedDateTime"), "web_url": i.get("webUrl")}
+        for i in g.list_folder(g.drive_id(site, drive_name), target, max(1, min(top, 200)))
+    ]
 
 
 def _require_draft(message_id: str) -> None:

@@ -17,9 +17,11 @@ eget API för att läsa/skriva mejl, så servern pratar direkt med Microsoft Gra
 | `read_message` | Läs ett mejl (bilagors innehåll hämtas inte) |
 | `mark_read`, `flag_message`, `set_categories`, `move_message` | Administrera |
 | `create_draft`, `create_reply_draft`, `update_draft`, `delete_draft` | Utkast |
+| `sharepoint_upload_release` | Ladda upp en lokal fil (t.ex. release-zip) till en förbestämd SharePoint-mapp |
+| `sharepoint_list_releases` | Lista filer i release-mappen, med länkar |
 
-Servern **kan inte skicka mejl**. Den begär bara `Mail.ReadWrite` + `User.Read`,
-så den tekniskt saknar behörighet att skicka. Alla utkast granskas och skickas av
+Servern **kan inte skicka mejl**. Den begär `Mail.ReadWrite`, `Sites.ReadWrite.All`
+och `User.Read` – men inte `Mail.Send`, så den saknar tekniskt behörighet att skicka. Alla utkast granskas och skickas av
 en människa i Outlook. `delete_draft` vägrar radera något som inte är ett utkast.
 
 ## Hur GDPR-tvätten fungerar
@@ -68,8 +70,9 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
 1. Entra admin center → *App registrations* → *New registration*.
 2. *Supported account types*: Endast den här organisationen.
 3. *Authentication* → *Allow public client flows* = **Yes** (för device code).
-4. *API permissions* → Microsoft Graph → **Delegated**: `Mail.ReadWrite`, `User.Read`.
-   Ge admin consent om er tenant kräver det.
+4. *API permissions* → Microsoft Graph → **Delegated**: `Mail.ReadWrite`,
+   `Sites.ReadWrite.All`, `User.Read`. `Sites.ReadWrite.All` kräver admin consent.
+   Behörigheten är delegerad: servern kommer bara åt det du själv har skrivrätt till.
 5. Notera *Application (client) ID* och *Directory (tenant) ID*.
 
 ### 2. Installera och logga in
@@ -112,6 +115,26 @@ claude mcp add outlook \
 }
 ```
 
+## SharePoint-releaser
+
+Servern kan lägga releaser som Claude Code byggt i en fast SharePoint-mapp, så att
+kollegor alltid hittar senaste versionen. Claude kan bara ladda upp till den
+konfigurerade mappen (och undermappar till den), aldrig någon annanstans.
+
+```bash
+claude mcp add outlook \
+  -e OUTLOOK_MCP_CLIENT_ID=<client-id> \
+  -e OUTLOOK_MCP_TENANT_ID=<tenant-id> \
+  -e SHAREPOINT_SITE="matildafoodtech.sharepoint.com:/sites/Utveckling" \
+  -e SHAREPOINT_FOLDER="Releases/MinApp" \
+  -e SHAREPOINT_UPLOAD_ROOTS="$HOME/projekt/minapp/dist" \
+  -- outlook-mcp-gdpr
+```
+
+Exempel i Claude Code: *"Bygg en release, zippa dist-mappen och ladda upp den till
+SharePoint i undermappen v1.4.0."* Befintliga filer skrivs inte över om du inte ber om det.
+Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
+
 ## Konfiguration
 
 | Variabel | Beskrivning |
@@ -121,6 +144,10 @@ claude mcp add outlook \
 | `OUTLOOK_MCP_CACHE_DIR` | Var token-cachen sparas |
 | `REDACT_ALLOWLIST` / `REDACT_ALLOWLIST_FILE` | Termer som *inte* ska tvättas (företagsnamn, orter, produkter) |
 | `REDACT_NAMES` / `REDACT_NAMES_FILE` | Extra namn som alltid ska tvättas (t.ex. kundregister-export), ett per rad |
+| `SHAREPOINT_SITE` | Webbplats som `värd:/sites/Namn`, t.ex. `matildafoodtech.sharepoint.com:/sites/Utveckling` |
+| `SHAREPOINT_DRIVE` | Dokumentbibliotekets namn (standard: webbplatsens standardbibliotek) |
+| `SHAREPOINT_FOLDER` | Mappen releaser laddas upp till, t.ex. `Releases/MinApp` |
+| `SHAREPOINT_UPLOAD_ROOTS` | Valfritt. Kommaseparerade lokala mappar som får laddas upp från – rekommenderas, så att Claude inte kan ladda upp andra filer |
 | `REDACT_USE_NER` | `1` = aktivera spaCy-NER. Kräver `pip install 'outlook-mcp-gdpr[ner]'` och `python -m spacy download sv_core_news_sm` |
 
 ## Utveckling

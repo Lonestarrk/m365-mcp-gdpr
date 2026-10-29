@@ -1,8 +1,8 @@
-"""Thin Microsoft Graph client for the signed-in user's mailbox.
+"""Thin Microsoft Graph client for the signed-in user's mailbox and SharePoint.
 
-Uses delegated auth (device code flow) via MSAL. Scopes are deliberately
-limited to Mail.ReadWrite: the server can read, organise and draft mail,
-but it can never send anything.
+Uses delegated auth (device code flow) via MSAL. There is deliberately no
+Mail.Send scope: the server can read, organise and draft mail, but it can
+never send anything. Sites.ReadWrite.All is used to upload release files.
 """
 
 from __future__ import annotations
@@ -11,12 +11,18 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import msal
 
 GRAPH = "https://graph.microsoft.com/v1.0"
-SCOPES = ["Mail.ReadWrite", "User.Read"]
+SCOPES = ["Mail.ReadWrite", "Sites.ReadWrite.All", "User.Read"]
+# Graph requires upload-session chunks to be multiples of 320 KiB.
+CHUNK = 320 * 1024 * 10
+SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024
+# Ask Graph for plain-text bodies so HTML never reaches the redactor.
+TEXT_BODY = {"Prefer": 'outlook.body-content-type="text"'}
 
 
 class AuthRequired(RuntimeError):
@@ -72,14 +78,17 @@ class Auth:
 class Graph:
     def __init__(self, auth: Auth | None = None, transport: httpx.BaseTransport | None = None):
         self._auth = auth or Auth()
-        self._http = httpx.Client(base_url=GRAPH, timeout=30, transport=transport)
+        self._http = httpx.Client(base_url=GRAPH, timeout=120, transport=transport)
+        self._drives: dict[tuple[str, str], str] = {}
 
     def request(self, method: str, path: str, **kw: Any) -> Any:
         headers = kw.pop("headers", {})
         headers["Authorization"] = f"Bearer {self._auth.token()}"
-        # Ask Graph for plain-text bodies so HTML never reaches the redactor.
-        headers.setdefault("Prefer", 'outlook.body-content-type="text"')
         resp = self._http.request(method, path, headers=headers, **kw)
+        return self._handle(resp)
+
+    @staticmethod
+    def _handle(resp: httpx.Response) -> Any:
         if resp.status_code >= 400:
             try:
                 err = resp.json()["error"]
@@ -122,7 +131,9 @@ class Graph:
             "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,"
             "isRead,isDraft,hasAttachments,body,importance,flag,categories"
         )
-        msg = self.request("GET", f"/me/messages/{message_id}", params={"$select": select})
+        msg = self.request(
+            "GET", f"/me/messages/{message_id}", params={"$select": select}, headers=dict(TEXT_BODY)
+        )
         if msg.get("hasAttachments"):
             att = self.request(
                 "GET", f"/me/messages/{message_id}/attachments",
@@ -146,3 +157,55 @@ class Graph:
 
     def delete(self, message_id: str) -> None:
         self.request("DELETE", f"/me/messages/{message_id}")
+
+    # ---- SharePoint ---------------------------------------------------
+
+    def drive_id(self, site: str, drive_name: str = "") -> str:
+        """Resolve a site ("host:/sites/Name") and library name to a drive id."""
+        key = (site, drive_name)
+        if key not in self._drives:
+            site_id = self.request("GET", f"/sites/{site}", params={"$select": "id"})["id"]
+            if drive_name:
+                drives = self.request("GET", f"/sites/{site_id}/drives", params={"$select": "id,name"})
+                match = [d for d in drives["value"] if d["name"] == drive_name]
+                if not match:
+                    names = ", ".join(d["name"] for d in drives["value"])
+                    raise RuntimeError(f"Dokumentbiblioteket '{drive_name}' finns inte. Tillgängliga: {names}")
+                self._drives[key] = match[0]["id"]
+            else:
+                self._drives[key] = self.request("GET", f"/sites/{site_id}/drive", params={"$select": "id"})["id"]
+        return self._drives[key]
+
+    def list_folder(self, drive_id: str, folder: str, top: int) -> list[dict]:
+        data = self.request(
+            "GET", f"/drives/{drive_id}/root:/{quote(folder)}:/children",
+            params={"$top": top, "$select": "name,size,lastModifiedDateTime,webUrl,folder,file",
+                    "$orderby": "lastModifiedDateTime desc"},
+        )
+        return data["value"]
+
+    def upload(self, drive_id: str, path: str, data: bytes, overwrite: bool) -> dict:
+        conflict = "replace" if overwrite else "fail"
+        item = f"/drives/{drive_id}/root:/{quote(path)}"
+        if len(data) <= SIMPLE_UPLOAD_MAX:
+            return self.request(
+                "PUT", f"{item}:/content",
+                params={"@microsoft.graph.conflictBehavior": conflict},
+                content=data, headers={"Content-Type": "application/octet-stream"},
+            )
+        session = self.request(
+            "POST", f"{item}:/createUploadSession",
+            json={"item": {"@microsoft.graph.conflictBehavior": conflict}},
+        )
+        url = session["uploadUrl"]
+        result: Any = None
+        for start in range(0, len(data), CHUNK):
+            chunk = data[start:start + CHUNK]
+            end = start + len(chunk) - 1
+            # The upload URL is pre-authenticated; Graph rejects an Authorization header here.
+            resp = self._http.put(url, content=chunk, headers={
+                "Content-Length": str(len(chunk)),
+                "Content-Range": f"bytes {start}-{end}/{len(data)}",
+            })
+            result = self._handle(resp)
+        return result
