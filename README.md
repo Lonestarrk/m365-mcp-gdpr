@@ -75,7 +75,7 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
 ### 2. Installera och logga in
 
 ```bash
-pip install git+https://github.com/<org>/outlook-mcp-gdpr
+pip install git+https://github.com/Lonestarrk/outlook-mcp-gdpr
 export OUTLOOK_MCP_CLIENT_ID=<client-id>
 export OUTLOOK_MCP_TENANT_ID=<tenant-id>
 outlook-mcp-gdpr login      # device code-inloggning, en gång
