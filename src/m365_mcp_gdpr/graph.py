@@ -194,18 +194,39 @@ class Graph:
             params["$filter"] = "isRead eq false"
         return self.request("GET", f"/me/mailFolders/{folder}/messages", params=params)["value"]
 
-    def search(self, query: str, top: int) -> list[dict]:
+    def search(self, query: str, top: int, folder: str | None = None) -> list[dict]:
         params = {
             "$search": f'"{query.replace(chr(34), "")}"',
             "$top": top,
             "$select": "id,subject,from,receivedDateTime,isRead,hasAttachments,bodyPreview",
         }
-        return self.request("GET", "/me/messages", params=params)["value"]
+        path = f"/me/mailFolders/{folder}/messages" if folder else "/me/messages"
+        return self.request("GET", path, params=params)["value"]
+
+    def get_folder(self, folder: str) -> dict:
+        return self.request(
+            "GET", f"/me/mailFolders/{folder}",
+            params={"$select": "id,displayName,unreadItemCount,totalItemCount"},
+        )
+
+    def find_folder(self, name: str) -> dict | None:
+        """A top-level folder or an Inbox subfolder with this display name."""
+        flt = {"$filter": f"displayName eq '{name.replace(chr(39), chr(39) * 2)}'", "$select": "id,displayName"}
+        for path in ("/me/mailFolders", "/me/mailFolders/inbox/childFolders"):
+            found = self.request("GET", path, params=flt)["value"]
+            if found:
+                return found[0]
+        return None
+
+    def parent_folder(self, message_id: str) -> str:
+        return self.request("GET", f"/me/messages/{message_id}", params={"$select": "parentFolderId"})[
+            "parentFolderId"
+        ]
 
     def get_message(self, message_id: str) -> dict:
         select = (
             "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,"
-            "isRead,isDraft,hasAttachments,body,importance,flag,categories"
+            "isRead,isDraft,hasAttachments,body,importance,flag,categories,parentFolderId"
         )
         msg = self.request(
             "GET", f"/me/messages/{message_id}", params={"$select": select}, headers=dict(TEXT_BODY)

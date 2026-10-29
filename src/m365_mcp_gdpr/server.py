@@ -126,6 +126,33 @@ def _summary(m: dict) -> dict[str, Any]:
     }
 
 
+_folder_id: str | None = None
+
+
+def _mail_folder() -> str | None:
+    """Id of the only folder the mail tools may touch, if M365_MCP_MAIL_FOLDER is set."""
+    global _folder_id
+    name = os.environ.get("M365_MCP_MAIL_FOLDER", "").strip()
+    if not name:
+        return None
+    if _folder_id is None:
+        folder = graph().find_folder(name)
+        if folder is None:
+            raise ValueError(
+                f"Mappen '{name}' finns inte. Skapa den i Outlook (överst eller under Inkorgen) först."
+            )
+        _folder_id = folder["id"]
+    return _folder_id
+
+
+def _require_in_folder(message_id: str, parent: str | None = None) -> None:
+    allowed = _mail_folder()
+    if allowed is None:
+        return
+    if (parent or graph().parent_folder(message_id)) != allowed:
+        raise ValueError("Meddelandet ligger utanför den tillåtna mappen (M365_MCP_MAIL_FOLDER).")
+
+
 def _recipients(addresses: list[str] | None) -> list[dict]:
     return [{"emailAddress": {"address": R.restore(a).strip()}} for a in addresses or []]
 
@@ -135,34 +162,41 @@ def _recipients(addresses: list[str] | None) -> list[dict]:
 @tool("mail")
 def list_folders() -> list[dict]:
     """Lista mappar i brevlådan med antal (olästa) meddelanden."""
+    folders = [graph().get_folder(f)] if (f := _mail_folder()) else graph().list_folders()
     return [
         {"id": f["id"], "name": R.redact(f["displayName"]),
          "unread": f.get("unreadItemCount"), "total": f.get("totalItemCount")}
-        for f in graph().list_folders()
+        for f in folders
     ]
 
 
 @tool("mail")
-def list_messages(folder: str = "inbox", top: int = 20, skip: int = 0, unread_only: bool = False) -> list[dict]:
+def list_messages(folder: str | None = None, top: int = 20, skip: int = 0, unread_only: bool = False) -> list[dict]:
     """Lista meddelanden i en mapp, nyast först.
 
     folder: mapp-id eller välkänt namn (inbox, drafts, sentitems, archive, deleteditems, junkemail).
+    Standard är Inkorgen, eller den tillåtna mappen om servern är begränsad till en mapp.
     """
     top = max(1, min(top, 50))
-    return [_summary(m) for m in graph().list_messages(folder, top, skip, unread_only)]
+    allowed = _mail_folder()
+    if allowed and folder not in (None, allowed, os.environ.get("M365_MCP_MAIL_FOLDER", "").strip()):
+        raise ValueError("Servern är begränsad till en mapp (M365_MCP_MAIL_FOLDER); utelämna folder.")
+    target = allowed or folder or "inbox"
+    return [_summary(m) for m in graph().list_messages(target, top, skip, unread_only)]
 
 
 @tool("mail")
 def search_messages(query: str, top: int = 20) -> list[dict]:
-    """Fritextsök i hela brevlådan. Tokens som [[PERSON_1]] får användas i söksträngen."""
+    """Fritextsök i brevlådan (eller i den tillåtna mappen). Tokens som [[PERSON_1]] får användas."""
     top = max(1, min(top, 50))
-    return [_summary(m) for m in graph().search(R.restore(query), top)]
+    return [_summary(m) for m in graph().search(R.restore(query), top, _mail_folder())]
 
 
 @tool("mail")
 def read_message(message_id: str) -> dict:
     """Läs ett helt meddelande (pseudonymiserat). Bilagornas innehåll hämtas inte."""
     m = graph().get_message(message_id)
+    _require_in_folder(message_id, m.get("parentFolderId"))
     _learn(m)
     return {
         "id": m["id"],
@@ -187,6 +221,7 @@ def read_message(message_id: str) -> dict:
 @tool("mail")
 def mark_read(message_id: str, is_read: bool = True) -> str:
     """Markera ett meddelande som läst eller oläst."""
+    _require_in_folder(message_id)
     graph().update_message(message_id, {"isRead": is_read})
     return "ok"
 
@@ -194,6 +229,7 @@ def mark_read(message_id: str, is_read: bool = True) -> str:
 @tool("mail")
 def flag_message(message_id: str, flagged: bool = True) -> str:
     """Flagga eller avflagga ett meddelande för uppföljning."""
+    _require_in_folder(message_id)
     graph().update_message(message_id, {"flag": {"flagStatus": "flagged" if flagged else "notFlagged"}})
     return "ok"
 
@@ -201,6 +237,7 @@ def flag_message(message_id: str, flagged: bool = True) -> str:
 @tool("mail")
 def set_categories(message_id: str, categories: list[str]) -> str:
     """Sätt Outlook-kategorier på ett meddelande (ersätter befintliga)."""
+    _require_in_folder(message_id)
     graph().update_message(message_id, {"categories": categories})
     return "ok"
 
@@ -208,6 +245,8 @@ def set_categories(message_id: str, categories: list[str]) -> str:
 @tool("mail")
 def move_message(message_id: str, destination: str) -> dict:
     """Flytta ett meddelande. destination: mapp-id eller välkänt namn (archive, deleteditems, inbox …)."""
+    if _mail_folder():
+        raise ValueError("Flytt är avstängd när servern är begränsad till en mapp (M365_MCP_MAIL_FOLDER).")
     m = graph().move(message_id, destination)
     return {"id": m["id"]}
 
@@ -231,6 +270,7 @@ def create_draft(subject: str, body: str, to: list[str] | None = None, cc: list[
 @tool("mail")
 def create_reply_draft(message_id: str, body: str, reply_all: bool = False) -> dict:
     """Skapa ett svarsutkast på ett befintligt meddelande. Skickas INTE."""
+    _require_in_folder(message_id)
     d = graph().create_reply_draft(message_id, R.restore(body), reply_all)
     return {"id": d["id"], "status": "Svarsutkast sparat i Outlook – granska och skicka själv."}
 

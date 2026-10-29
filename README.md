@@ -249,6 +249,21 @@ En del som inte är påslagen är avstängd på två nivåer:
 Slår du på en ny del senare får du logga in en gång till, för att godkänna den nya
 behörigheten. Ett felstavat namn stoppar servern med ett tydligt felmeddelande.
 
+## Testa säkert med en testmapp
+
+Med `M365_MCP_MAIL_FOLDER=<mappnamn>` kommer mejlverktygen bara åt en enda mapp. Lista,
+sök och läs fungerar bara där, åtgärder på mejl utanför mappen vägras och flytt är
+avstängd. Utkast fungerar som vanligt. Mappen kan ligga överst eller direkt under Inkorgen.
+
+Så här testar du tvätten utan riktiga kunduppgifter:
+
+1. Skapa mappen `MCP-test` i Outlook.
+2. Skicka några mejl till dig själv med påhittade namn, personnummer, telefonnummer,
+   adresser och t.ex. allergier, och flytta dem till mappen.
+3. Installera med `M365_MCP_FEATURES=mail`, `M365_MCP_MAIL_FOLDER=MCP-test` och
+   `M365_MCP_AUDIT=1`.
+4. Be Claude läsa och svara på testmejlen, och jämför på granskningssidan.
+
 ## Granskningssida (valfri)
 
 Vill du se exakt vad Claude får, kan servern visa en lokal webbsida med varje anrop
@@ -305,6 +320,7 @@ Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
 | `SHAREPOINT_FOLDER` | Mappen releaser laddas upp till, t.ex. `Releases/MinApp` |
 | `SHAREPOINT_UPLOAD_ROOTS` | Valfritt. Kommaseparerade lokala mappar som får laddas upp från – rekommenderas, så att Claude inte kan ladda upp andra filer |
 | `M365_MCP_FEATURES` | Vilka delar som är påslagna: `sharepoint` (standard), `mail`, `calendar`, `teams` eller `all` (se ovan) |
+| `M365_MCP_MAIL_FOLDER` | Begränsa mejlverktygen till en enda mapp, t.ex. `MCP-test` (se [Testa säkert](#testa-säkert-med-en-testmapp)) |
 | `M365_MCP_TIMEZONE` | Tidszon för kalendern, t.ex. `Europe/Stockholm` (standard: UTC) |
 | `M365_MCP_AUDIT` | `1` = starta granskningssidan (se ovan) |
 | `M365_MCP_AUDIT_PORT` | Fast port för granskningssidan (standard: slumpad ledig port) |
