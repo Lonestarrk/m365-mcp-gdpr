@@ -1,8 +1,8 @@
 """Thin Microsoft Graph client for the signed-in user's mailbox and SharePoint.
 
-Uses delegated auth via MSAL (see `Auth`). There is deliberately no
-Mail.Send scope: the server can read, organise and draft mail, but it can
-never send anything. Sites.ReadWrite.All is used to upload release files.
+Uses delegated auth via MSAL (see `Auth`). Only the scopes for the enabled
+features are requested (see `features`). There is deliberately no Mail.Send
+scope: the server can read, organise and draft mail, but never send it.
 """
 
 from __future__ import annotations
@@ -19,10 +19,11 @@ import httpx
 import msal
 from msal_extensions import FilePersistence, PersistedTokenCache, build_encrypted_persistence
 
+from . import features
+
 logger = logging.getLogger(__name__)
 
 GRAPH = "https://graph.microsoft.com/v1.0"
-SCOPES = ["Mail.ReadWrite", "Sites.ReadWrite.All", "User.Read"]
 # Graph requires upload-session chunks to be multiples of 320 KiB.
 CHUNK = 320 * 1024 * 10
 SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024
@@ -79,7 +80,8 @@ class Auth:
     for as long as the tenant's policies allow.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, scopes: list[str] | None = None) -> None:
+        self.scopes = scopes or features.scopes(features.enabled())
         client_id = os.environ.get("M365_MCP_CLIENT_ID")
         if not client_id:
             raise RuntimeError("M365_MCP_CLIENT_ID saknas (Entra ID app-registrering)")
@@ -100,7 +102,7 @@ class Auth:
         accounts = self._app.get_accounts(username=self._login_hint) or self._app.get_accounts()
         if not accounts:
             return None
-        return self._app.acquire_token_silent(SCOPES, account=accounts[0])
+        return self._app.acquire_token_silent(self.scopes, account=accounts[0])
 
     def token(self) -> str:
         with self._lock:
@@ -115,13 +117,13 @@ class Auth:
         kwargs: dict[str, Any] = {"prompt": "select_account", "login_hint": self._login_hint, "timeout": 300}
         if self._broker:
             kwargs["parent_window_handle"] = msal.PublicClientApplication.CONSOLE_WINDOW_HANDLE
-        result = self._app.acquire_token_interactive(SCOPES, **kwargs)
+        result = self._app.acquire_token_interactive(self.scopes, **kwargs)
         if "access_token" not in result:
             raise AuthRequired(f"Inloggning misslyckades: {result.get('error_description') or result.get('error')}")
         return result
 
     def device_login(self) -> dict:
-        flow = self._app.initiate_device_flow(scopes=SCOPES)
+        flow = self._app.initiate_device_flow(scopes=self.scopes)
         if "user_code" not in flow:
             raise RuntimeError(f"Kunde inte starta inloggning: {flow}")
         print(flow["message"], file=sys.stderr, flush=True)

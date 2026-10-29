@@ -9,22 +9,24 @@ för att läsa/skriva mejl, så servern pratar direkt med Microsoft Graph.
 
 ## Vad den kan
 
-| Verktyg | Beskrivning |
-|---|---|
-| `list_folders` | Mappar med antal (olästa) |
-| `list_messages` | Lista mejl i en mapp, filtrera på olästa |
-| `search_messages` | Fritextsök i hela brevlådan |
-| `read_message` | Läs ett mejl (bilagors innehåll hämtas inte) |
-| `mark_read`, `flag_message`, `set_categories`, `move_message` | Administrera |
-| `create_draft`, `create_reply_draft`, `update_draft`, `delete_draft` | Utkast |
-| `sharepoint_upload_release` | Ladda upp en lokal fil (t.ex. release-zip) till en förbestämd SharePoint-mapp |
-| `sharepoint_list_releases` | Lista filer i release-mappen, med länkar |
+Servern är uppdelad i delar som slås på var för sig med `M365_MCP_FEATURES`
+(se [Välja delar](#välja-delar-av-microsoft-365)). Som standard är bara `sharepoint` påslagen.
+
+| Del | Verktyg | Beskrivning |
+|---|---|---|
+| `mail` | `list_folders` | Mappar med antal (olästa) |
+| `mail` | `list_messages` | Lista mejl i en mapp, filtrera på olästa |
+| `mail` | `search_messages` | Fritextsök i hela brevlådan |
+| `mail` | `read_message` | Läs ett mejl (bilagors innehåll hämtas inte) |
+| `mail` | `mark_read`, `flag_message`, `set_categories`, `move_message` | Administrera |
+| `mail` | `create_draft`, `create_reply_draft`, `update_draft`, `delete_draft` | Utkast |
+| `sharepoint` | `sharepoint_upload_release` | Ladda upp en lokal fil (t.ex. release-zip) till en förbestämd SharePoint-mapp |
+| `sharepoint` | `sharepoint_list_releases` | Lista filer i release-mappen, med länkar |
 
 Valfritt: en lokal [granskningssida](#granskningssida-valfri) som visar exakt vad Claude får.
 
-Servern **kan inte skicka mejl**. Den begär `Mail.ReadWrite`, `Sites.ReadWrite.All`
-och `User.Read` – men inte `Mail.Send`, så den saknar tekniskt behörighet att skicka. Alla utkast granskas och skickas av
-en människa i Outlook. `delete_draft` vägrar radera något som inte är ett utkast.
+Servern **kan inte skicka mejl**. Den begär aldrig `Mail.Send`, så den saknar tekniskt
+behörighet att skicka. Alla utkast granskas och skickas av en människa i Outlook. `delete_draft` vägrar radera något som inte är ett utkast.
 
 ## Hur GDPR-tvätten fungerar
 
@@ -76,9 +78,11 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
    - `ms-appx-web://Microsoft.AAD.BrokerPlugin/<client-id>` (Windows inbyggda kontoruta)
    - `msauth.com.msauth.unsignedapp://auth` (Mac med Company Portal)
 4. *Authentication* → *Allow public client flows* = **Yes** (behövs bara för `--device-code`).
-5. *API permissions* → Microsoft Graph → **Delegated**: `Mail.ReadWrite`,
-   `Sites.ReadWrite.All`, `User.Read`. `Sites.ReadWrite.All` kräver admin consent.
-   Behörigheten är delegerad: servern kommer bara åt det du själv har behörighet till.
+5. *API permissions* → Microsoft Graph → **Delegated**: `User.Read` plus behörigheten
+   för varje del ni ska använda (se [Välja delar](#välja-delar-av-microsoft-365)):
+   `Sites.ReadWrite.All` för `sharepoint`, `Mail.ReadWrite` för `mail`.
+   `Sites.ReadWrite.All` kräver admin consent. Behörigheterna är delegerade: servern
+   kommer bara åt det du själv har behörighet till.
 6. Notera *Application (client) ID* och *Directory (tenant) ID*.
 
 ### 2. Installera programmet
@@ -105,6 +109,7 @@ claude mcp add m365 --scope user \
   -e M365_MCP_CLIENT_ID=<client-id> \
   -e M365_MCP_TENANT_ID=<tenant-id> \
   -e M365_MCP_LOGIN_HINT=<din jobbmejl> \
+  -e M365_MCP_FEATURES=sharepoint \
   -e SHAREPOINT_SITE="matildafoodtech.sharepoint.com:/sites/<webbplats>" \
   -e SHAREPOINT_FOLDER="<mapp för releaser>" \
   -e SHAREPOINT_UPLOAD_ROOTS="<sökväg till projektets dist-mapp>" \
@@ -186,6 +191,27 @@ Lägg till i `claude_desktop_config.json` och starta om Claude Desktop:
 }
 ```
 
+## Välja delar av Microsoft 365
+
+`M365_MCP_FEATURES` är en kommaseparerad lista över de delar servern ska ge Claude
+tillgång till:
+
+| Värde | Ger |
+|---|---|
+| `sharepoint` (standard) | Uppladdning och listning av releaser i en SharePoint-mapp |
+| `mail` | Läsa, organisera och skriva utkast i Outlook, med GDPR-tvätt |
+| `mail,sharepoint` eller `all` | Båda |
+
+En del som inte är påslagen är avstängd på två nivåer:
+
+1. **Verktygen finns inte.** Claude ser dem inte och kan inte anropa dem.
+2. **Behörigheten begärs inte.** Inloggningen ber bara Microsoft om behörigheterna för
+   de påslagna delarna. Med bara `sharepoint` innehåller inloggningen ingen rätt till
+   mejlen alls, så Microsoft skulle vägra även om något gick fel i servern.
+
+Slår du på en ny del senare får du logga in en gång till, för att godkänna den nya
+behörigheten. Ett felstavat namn stoppar servern med ett tydligt felmeddelande.
+
 ## Granskningssida (valfri)
 
 Vill du se exakt vad Claude får, kan servern visa en lokal webbsida med varje anrop
@@ -241,6 +267,7 @@ Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
 | `SHAREPOINT_DRIVE` | Dokumentbibliotekets namn (standard: webbplatsens standardbibliotek) |
 | `SHAREPOINT_FOLDER` | Mappen releaser laddas upp till, t.ex. `Releases/MinApp` |
 | `SHAREPOINT_UPLOAD_ROOTS` | Valfritt. Kommaseparerade lokala mappar som får laddas upp från – rekommenderas, så att Claude inte kan ladda upp andra filer |
+| `M365_MCP_FEATURES` | Vilka delar som är påslagna: `sharepoint` (standard), `mail` eller `all` (se ovan) |
 | `M365_MCP_AUDIT` | `1` = starta granskningssidan (se ovan) |
 | `M365_MCP_AUDIT_PORT` | Fast port för granskningssidan (standard: slumpad ledig port) |
 | `M365_MCP_AUDIT_OPEN` | `0` = öppna inte webbläsaren automatiskt; länken skrivs i serverns logg |
