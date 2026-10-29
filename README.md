@@ -69,11 +69,15 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
 
 1. Entra admin center → *App registrations* → *New registration*.
 2. *Supported account types*: Endast den här organisationen.
-3. *Authentication* → *Allow public client flows* = **Yes** (för device code).
-4. *API permissions* → Microsoft Graph → **Delegated**: `Mail.ReadWrite`,
+3. *Authentication* → *Add a platform* → **Mobile and desktop applications**, lägg till:
+   - `http://localhost` (inloggning via webbläsare)
+   - `ms-appx-web://Microsoft.AAD.BrokerPlugin/<client-id>` (Windows inbyggda kontoruta)
+   - `msauth.com.msauth.unsignedapp://auth` (Mac med Company Portal)
+4. *Authentication* → *Allow public client flows* = **Yes** (behövs bara för `--device-code`).
+5. *API permissions* → Microsoft Graph → **Delegated**: `Mail.ReadWrite`,
    `Sites.ReadWrite.All`, `User.Read`. `Sites.ReadWrite.All` kräver admin consent.
-   Behörigheten är delegerad: servern kommer bara åt det du själv har skrivrätt till.
-5. Notera *Application (client) ID* och *Directory (tenant) ID*.
+   Behörigheten är delegerad: servern kommer bara åt det du själv har behörighet till.
+6. Notera *Application (client) ID* och *Directory (tenant) ID*.
 
 ### 2. Installera och logga in
 
@@ -81,10 +85,28 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
 pip install git+https://github.com/Lonestarrk/outlook-mcp-gdpr
 export OUTLOOK_MCP_CLIENT_ID=<client-id>
 export OUTLOOK_MCP_TENANT_ID=<tenant-id>
-outlook-mcp-gdpr login      # device code-inloggning, en gång
+outlook-mcp-gdpr login
 ```
 
-Token-cachen sparas i `~/.outlook-mcp-gdpr/token_cache.json` (filrättigheter 600).
+Inloggningen sker med ditt vanliga jobbkonto:
+
+- **Windows:** systemets egen kontoruta visas, med ditt jobbkonto förvalt. Ofta behövs
+  inget lösenord alls om du redan är inloggad i Windows med jobbkontot.
+- **Mac:** via Company Portal om den är installerad (`pip install '...[broker]'`),
+  annars öppnas Microsofts inloggningssida i webbläsaren.
+- **Linux:** Microsofts inloggningssida öppnas i webbläsaren.
+
+Tvåfaktorsinloggning (t.ex. Microsoft Authenticator) sköts som vanligt i den rutan.
+
+Du behöver bara logga in en gång. Inloggningen sparas krypterat i operativsystemets
+nyckelring (Windows DPAPI, macOS Keychain, Linux libsecret) och förnyas tyst i
+bakgrunden. Den håller så länge du använder den regelbundet – som standard upphör den
+efter 90 dagar utan användning. Er IT kan ha regler (Conditional Access, "sign-in
+frequency") som kräver ny inloggning oftare; det styrs av organisationen, inte av servern.
+
+Om du inte har loggat in i förväg öppnas inloggningen automatiskt första gången Claude
+använder servern. `outlook-mcp-gdpr logout` tar bort den sparade inloggningen.
+På en dator utan webbläsare: `outlook-mcp-gdpr login --device-code`.
 
 ### 3. Koppla till Claude
 
@@ -142,6 +164,9 @@ Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
 | `OUTLOOK_MCP_CLIENT_ID` | Krävs. Client ID från app-registreringen |
 | `OUTLOOK_MCP_TENANT_ID` | Tenant-ID (standard `organizations`) |
 | `OUTLOOK_MCP_CACHE_DIR` | Var token-cachen sparas |
+| `OUTLOOK_MCP_LOGIN_HINT` | Ditt jobbmejl, förifyllt i inloggningsrutan |
+| `OUTLOOK_MCP_AUTO_LOGIN` | `0` = öppna aldrig inloggning automatiskt, kräv `login` i förväg |
+| `OUTLOOK_MCP_BROKER` | `0` = använd webbläsaren även där Windows/Mac-kontorutan finns |
 | `REDACT_ALLOWLIST` / `REDACT_ALLOWLIST_FILE` | Termer som *inte* ska tvättas (företagsnamn, orter, produkter) |
 | `REDACT_NAMES` / `REDACT_NAMES_FILE` | Extra namn som alltid ska tvättas (t.ex. kundregister-export), ett per rad |
 | `SHAREPOINT_SITE` | Webbplats som `värd:/sites/Namn`, t.ex. `matildafoodtech.sharepoint.com:/sites/Utveckling` |

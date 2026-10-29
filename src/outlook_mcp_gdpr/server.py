@@ -301,9 +301,16 @@ def _require_draft(message_id: str) -> None:
 def main() -> None:
     # httpx loggar hela URL:er på INFO, inklusive söksträngar med riktiga namn.
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    if len(sys.argv) > 1 and sys.argv[1] == "login":
-        Auth().device_login()
-        print("Inloggad. Token-cache sparad.", file=sys.stderr)
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "login":
+        auth = Auth()
+        result = auth.device_login() if "--device-code" in sys.argv else auth.interactive_login()
+        user = (result.get("id_token_claims") or {}).get("preferred_username", "")
+        print(f"Inloggad som {user}. Inloggningen sparas och förnyas automatiskt.", file=sys.stderr)
+        return
+    if cmd == "logout":
+        removed = Auth().logout()
+        print("Utloggad: " + (", ".join(removed) or "inga konton"), file=sys.stderr)
         return
     mcp.run("stdio")
 
