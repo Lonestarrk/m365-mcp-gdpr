@@ -255,6 +255,42 @@ En del som inte är påslagen är avstängd på två nivåer:
 Slår du på en ny del senare får du logga in en gång till, för att godkänna den nya
 behörigheten. Ett felstavat namn stoppar servern med ett tydligt felmeddelande.
 
+## Copilot som extra tvättsteg (valfritt)
+
+Reglerna ovan hittar nummer, adresser och kända namn, men inte namn i löptext, uppgifter
+som pekar ut någon indirekt ("kökschefen på Solgårdens förskola") eller känsliga
+uppgifter som allergier. Med `M365_MCP_REDACT_ENGINE=copilot` granskar Microsoft 365
+Copilot varje mejl innan Claude får det:
+
+1. **Lokala regler** tvättar nummer, adresser och kända namn, som vanligt.
+2. **Copilot** pekar ut namn i löptext och indirekta identifierare, som sedan tvättas,
+   och avgör om mejlet innehåller känsliga uppgifter (GDPR art. 9: hälsa, allergier,
+   specialkost, religion m.m.). Då **blockeras hela mejlet** och Claude ser bara att det
+   är blockerat och varför.
+3. **Säker hållning:** om Copilot inte svarar eller svarar i fel format blockeras mejlet.
+   Inget släpps igenom ogranskat.
+
+En lista med mejl granskas i ett enda anrop till Copilot. Webbsökning är avstängd i
+anropet, och Copilots svar används bara lokalt; det skickas aldrig till Claude.
+
+Instruktionerna till Copilot ligger i
+[`copilot_instructions.md`](src/m365_mcp_gdpr/copilot_instructions.md). Vill ni ändra
+dem, kopiera filen, redigera och peka ut den med `M365_MCP_COPILOT_INSTRUCTIONS`.
+
+**Krav:**
+
+- En **Microsoft 365 Copilot-licens** för användaren (gratisversionen Copilot Chat räcker inte).
+- Copilot Chat API (Microsoft Graph beta) kräver **sju delegerade behörigheter samtidigt**:
+  `Sites.Read.All`, `Mail.Read`, `People.Read.All`, `OnlineMeetingTranscript.Read.All`,
+  `Chat.Read`, `ChannelMessage.Read.All` (kräver admin) och `ExternalItem.Read.All`.
+  De läggs till i app-registreringen och begärs bara när Copilot-steget är påslaget.
+- Inställningen **"Enable Anthropic as a Microsoft subprocessor"** i Microsoft 365 admin
+  center bör vara avstängd. Annars kan Copilot själv använda Claude-modeller, och
+  mejlet kan behandlas av Anthropic redan i tvättsteget.
+
+Copilot-steget gäller i dag mejl (lista, sök och läs). Kalender och Teams tvättas med de
+lokala reglerna.
+
 ## Testa säkert med en testmapp
 
 Med `M365_MCP_MAIL_FOLDER=<mappnamn>` kommer mejlverktygen bara åt en enda mapp. Lista,
@@ -326,6 +362,8 @@ Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
 | `SHAREPOINT_FOLDER` | Mappen releaser laddas upp till, t.ex. `Releases/MinApp` |
 | `SHAREPOINT_UPLOAD_ROOTS` | Valfritt. Kommaseparerade lokala mappar som får laddas upp från – rekommenderas, så att Claude inte kan ladda upp andra filer |
 | `M365_MCP_FEATURES` | Vilka delar som är påslagna: `sharepoint` (standard), `mail`, `calendar`, `teams` eller `all` (se ovan) |
+| `M365_MCP_REDACT_ENGINE` | `local` (standard) eller `copilot` för Copilot som extra tvättsteg (se ovan) |
+| `M365_MCP_COPILOT_INSTRUCTIONS` | Sökväg till egna instruktioner för Copilot-steget |
 | `M365_MCP_MAIL_FOLDER` | Begränsa mejlverktygen till en enda mapp, t.ex. `MCP-test` (se [Testa säkert](#testa-säkert-med-en-testmapp)) |
 | `M365_MCP_TIMEZONE` | Tidszon för kalendern, t.ex. `Europe/Stockholm` (standard: UTC) |
 | `M365_MCP_AUDIT` | `1` = starta granskningssidan (se ovan) |

@@ -193,6 +193,15 @@ class Redactor:
                     self.vault.alias(part_token, part)
                     self._name_parts[part] = part_token
 
+    def register_term(self, text: str, kind: str) -> None:
+        """Redact this exact text from now on, e.g. a phrase flagged by Copilot."""
+        text = text.strip()
+        if len(text) < 2 or text.casefold() in self.allowlist or TOKEN_RE.fullmatch(text):
+            return
+        token = self.vault.token_for(kind, text)
+        with self._lock:
+            self._name_parts.setdefault(text, token)
+
     # ---- redaction ----------------------------------------------------
 
     def redact(self, text: str | None) -> str:

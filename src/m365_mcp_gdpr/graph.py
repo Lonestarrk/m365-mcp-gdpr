@@ -92,7 +92,7 @@ class Auth:
     """
 
     def __init__(self, scopes: list[str] | None = None) -> None:
-        self.scopes = scopes or features.scopes(features.enabled())
+        self.scopes = scopes or features.request_scopes()
         client_id = os.environ.get("M365_MCP_CLIENT_ID")
         if not client_id:
             raise RuntimeError("M365_MCP_CLIENT_ID saknas (Entra ID app-registrering)")

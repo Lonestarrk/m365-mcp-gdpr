@@ -15,7 +15,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from . import audit, features
+from . import audit, copilot, features
 from .graph import Auth, Graph
 from .redact import Redactor
 from .text import html_to_text
@@ -30,6 +30,9 @@ eller [[EMAIL_2]]. Försök aldrig gissa vad som döljs bakom en token.
 När du skriver utkast eller söker: använd tokens ordagrant, så ersätts de med
 riktiga värden innan utkastet sparas i Outlook. Servern kan inte skicka mejl –
 den skapar endast utkast som användaren själv granskar och skickar.
+Mejl med känsliga personuppgifter (t.ex. hälsa, allergier, specialkost, religion)
+kan visas som blockerade. Försök inte få fram innehållet på annat sätt; be
+användaren läsa sådana mejl själv i Outlook.
 
 Kalender: du kan läsa kalendern och boka tid för användaren själv, men inte skapa
 möten med deltagare (det skulle skicka inbjudningar). Tider anges i ISO 8601.
@@ -111,14 +114,41 @@ def _addr(a: dict | None) -> str:
     return R.redact(address)
 
 
-def _summary(m: dict) -> dict[str, Any]:
+def _screen(texts: list[str]) -> list[copilot.Verdict | None]:
+    """Copilot review (if enabled): teach the redactor what to remove, return verdicts."""
+    if not copilot.enabled():
+        return [None] * len(texts)
+    verdicts = copilot.CopilotScreener(graph()).screen(texts)
+    for v in verdicts:
+        for text, kind in v.items:
+            if kind == "PERSON":
+                R.register_person(text)
+            R.register_term(text, kind)
+    return verdicts
+
+
+def _blocked(v: copilot.Verdict | None) -> str | None:
+    if v is not None and v.block:
+        return f"Blockerat: innehåller känsliga personuppgifter ({v.reason or 'okänd orsak'})"
+    return None
+
+
+def _summaries(msgs: list[dict]) -> list[dict[str, Any]]:
+    for m in msgs:
+        _learn(m)
+    verdicts = _screen([f"{m.get('subject') or ''}\n{m.get('bodyPreview') or ''}" for m in msgs])
+    return [_summary(m, v) for m, v in zip(msgs, verdicts)]
+
+
+def _summary(m: dict, verdict: copilot.Verdict | None = None) -> dict[str, Any]:
     _learn(m)
+    blocked = _blocked(verdict)
     return {
         "id": m["id"],
         "received": m.get("receivedDateTime"),
         "from": _addr(m.get("from")),
-        "subject": R.redact(m.get("subject")),
-        "preview": R.redact(m.get("bodyPreview")),
+        "subject": blocked or R.redact(m.get("subject")),
+        "preview": "" if blocked else R.redact(m.get("bodyPreview")),
         "is_read": m.get("isRead"),
         "is_draft": m.get("isDraft"),
         "has_attachments": m.get("hasAttachments"),
@@ -182,14 +212,14 @@ def list_messages(folder: str | None = None, top: int = 20, skip: int = 0, unrea
     if allowed and folder not in (None, allowed, os.environ.get("M365_MCP_MAIL_FOLDER", "").strip()):
         raise ValueError("Servern är begränsad till en mapp (M365_MCP_MAIL_FOLDER); utelämna folder.")
     target = allowed or folder or "inbox"
-    return [_summary(m) for m in graph().list_messages(target, top, skip, unread_only)]
+    return _summaries(graph().list_messages(target, top, skip, unread_only))
 
 
 @tool("mail")
 def search_messages(query: str, top: int = 20) -> list[dict]:
     """Fritextsök i brevlådan (eller i den tillåtna mappen). Tokens som [[PERSON_1]] får användas."""
     top = max(1, min(top, 50))
-    return [_summary(m) for m in graph().search(R.restore(query), top, _mail_folder())]
+    return _summaries(graph().search(R.restore(query), top, _mail_folder()))
 
 
 @tool("mail")
@@ -198,6 +228,11 @@ def read_message(message_id: str) -> dict:
     m = graph().get_message(message_id)
     _require_in_folder(message_id, m.get("parentFolderId"))
     _learn(m)
+    body = (m.get("body") or {}).get("content") or ""
+    (verdict,) = _screen([f"{m.get('subject') or ''}\n\n{body}"])
+    if blocked := _blocked(verdict):
+        return {"id": m["id"], "received": m.get("receivedDateTime"), "from": _addr(m.get("from")),
+                "blocked": True, "reason": blocked}
     return {
         "id": m["id"],
         "conversation_id": m.get("conversationId"),

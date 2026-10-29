@@ -38,3 +38,13 @@ def enabled() -> tuple[str, ...]:
 def scopes(features: tuple[str, ...]) -> list[str]:
     out = [s for f in features for s in SCOPES[f]]
     return out + BASE_SCOPES
+
+
+def request_scopes() -> list[str]:
+    """Scopes to ask for at sign-in: enabled features, plus Copilot's if it redacts."""
+    from . import copilot
+
+    out = scopes(enabled())
+    if copilot.enabled():
+        out += copilot.SCOPES
+    return list(dict.fromkeys(out))
