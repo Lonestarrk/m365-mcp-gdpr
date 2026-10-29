@@ -79,21 +79,65 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
    Behörigheten är delegerad: servern kommer bara åt det du själv har behörighet till.
 6. Notera *Application (client) ID* och *Directory (tenant) ID*.
 
-### 2. Installera och logga in
+### 2. Installera programmet
+
+Kräver Python 3.11 eller senare. Installera med [pipx](https://pipx.pypa.io), så hamnar
+programmet i en egen miljö och kommandot `m365-mcp-gdpr` blir tillgängligt överallt:
 
 ```bash
-pip install git+https://github.com/Lonestarrk/m365-mcp-gdpr
-export M365_MCP_CLIENT_ID=<client-id>
-export M365_MCP_TENANT_ID=<tenant-id>
-m365-mcp-gdpr login
+pipx install git+https://github.com/Lonestarrk/m365-mcp-gdpr
 ```
+
+Mac med Company Portal (för inloggningsrutan i stället för webbläsaren):
+
+```bash
+pipx install "m365-mcp-gdpr[broker] @ git+https://github.com/Lonestarrk/m365-mcp-gdpr"
+```
+
+Är repot privat behöver du vara inloggad mot GitHub på datorn först, t.ex. med `gh auth login`.
+
+### 3. Installera i Claude Code
+
+```bash
+claude mcp add m365 --scope user \
+  -e M365_MCP_CLIENT_ID=<client-id> \
+  -e M365_MCP_TENANT_ID=<tenant-id> \
+  -e M365_MCP_LOGIN_HINT=<din jobbmejl> \
+  -e SHAREPOINT_SITE="matildafoodtech.sharepoint.com:/sites/<webbplats>" \
+  -e SHAREPOINT_FOLDER="<mapp för releaser>" \
+  -e SHAREPOINT_UPLOAD_ROOTS="<sökväg till projektets dist-mapp>" \
+  -- m365-mcp-gdpr
+```
+
+- `--scope user` gör servern tillgänglig i alla dina projekt. Utan den gäller den bara
+  i mappen du står i.
+- På Windows (PowerShell/cmd): skriv allt på en rad utan `\`.
+- SharePoint-raderna kan utelämnas om du bara ska använda mejl, och tvärtom.
+  Alla inställningar finns under [Konfiguration](#konfiguration).
+
+Starta Claude Code och kör `/mcp`. `m365` ska stå som ansluten. Första gången Claude
+använder servern öppnas inloggningen (se nedan).
+
+**Ändra inställningar:** ta bort och lägg till igen:
+
+```bash
+claude mcp remove m365 --scope user
+claude mcp add m365 --scope user ...
+```
+
+**Uppdatera till senaste versionen:** `pipx upgrade m365-mcp-gdpr` och starta om Claude Code.
+
+**Avinstallera:** `claude mcp remove m365 --scope user`, `m365-mcp-gdpr logout` och
+`pipx uninstall m365-mcp-gdpr`.
+
+### 4. Logga in
 
 Inloggningen sker med ditt vanliga jobbkonto:
 
 - **Windows:** systemets egen kontoruta visas, med ditt jobbkonto förvalt. Ofta behövs
   inget lösenord alls om du redan är inloggad i Windows med jobbkontot.
-- **Mac:** via Company Portal om den är installerad (`pip install '...[broker]'`),
-  annars öppnas Microsofts inloggningssida i webbläsaren.
+- **Mac:** via Company Portal om den är installerad (se steg 2), annars öppnas
+  Microsofts inloggningssida i webbläsaren.
 - **Linux:** Microsofts inloggningssida öppnas i webbläsaren.
 
 Tvåfaktorsinloggning (t.ex. Microsoft Authenticator) sköts som vanligt i den rutan.
@@ -104,23 +148,25 @@ bakgrunden. Den håller så länge du använder den regelbundet – som standard
 efter 90 dagar utan användning. Er IT kan ha regler (Conditional Access, "sign-in
 frequency") som kräver ny inloggning oftare; det styrs av organisationen, inte av servern.
 
-Om du inte har loggat in i förväg öppnas inloggningen automatiskt första gången Claude
-använder servern. `m365-mcp-gdpr logout` tar bort den sparade inloggningen.
-På en dator utan webbläsare: `m365-mcp-gdpr login --device-code`.
-
-### 3. Koppla till Claude
-
-**Claude Code:**
+Inloggningen öppnas automatiskt första gången Claude använder servern. Vill du hellre
+logga in i förväg, kör i en terminal (macOS/Linux):
 
 ```bash
-claude mcp add m365 \
-  -e M365_MCP_CLIENT_ID=<client-id> \
-  -e M365_MCP_TENANT_ID=<tenant-id> \
-  -e REDACT_ALLOWLIST="Matilda Foodtech,Stockholm" \
-  -- m365-mcp-gdpr
+M365_MCP_CLIENT_ID=<client-id> M365_MCP_TENANT_ID=<tenant-id> m365-mcp-gdpr login
 ```
 
-**Claude Desktop** (`claude_desktop_config.json`):
+PowerShell:
+
+```powershell
+$env:M365_MCP_CLIENT_ID="<client-id>"; $env:M365_MCP_TENANT_ID="<tenant-id>"; m365-mcp-gdpr login
+```
+
+`m365-mcp-gdpr logout` tar bort den sparade inloggningen. På en dator utan webbläsare:
+`m365-mcp-gdpr login --device-code`.
+
+### Claude Desktop
+
+Lägg till i `claude_desktop_config.json` och starta om Claude Desktop:
 
 ```json
 {
@@ -129,8 +175,7 @@ claude mcp add m365 \
       "command": "m365-mcp-gdpr",
       "env": {
         "M365_MCP_CLIENT_ID": "<client-id>",
-        "M365_MCP_TENANT_ID": "<tenant-id>",
-        "REDACT_ALLOWLIST": "Matilda Foodtech"
+        "M365_MCP_TENANT_ID": "<tenant-id>"
       }
     }
   }
@@ -143,15 +188,8 @@ Servern kan lägga releaser som Claude Code byggt i en fast SharePoint-mapp, så
 kollegor alltid hittar senaste versionen. Claude kan bara ladda upp till den
 konfigurerade mappen (och undermappar till den), aldrig någon annanstans.
 
-```bash
-claude mcp add m365 \
-  -e M365_MCP_CLIENT_ID=<client-id> \
-  -e M365_MCP_TENANT_ID=<tenant-id> \
-  -e SHAREPOINT_SITE="matildafoodtech.sharepoint.com:/sites/Utveckling" \
-  -e SHAREPOINT_FOLDER="Releases/MinApp" \
-  -e SHAREPOINT_UPLOAD_ROOTS="$HOME/projekt/minapp/dist" \
-  -- m365-mcp-gdpr
-```
+Mappen ställs in med `SHAREPOINT_SITE`, `SHAREPOINT_FOLDER` och `SHAREPOINT_UPLOAD_ROOTS`
+(se [Installera i Claude Code](#3-installera-i-claude-code)).
 
 Exempel i Claude Code: *"Bygg en release, zippa dist-mappen och ladda upp den till
 SharePoint i undermappen v1.4.0."* Befintliga filer skrivs inte över om du inte ber om det.
