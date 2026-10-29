@@ -56,7 +56,7 @@ Outlook ◀─Graph─── [ MCP-server: restore() ] ◀─tokens── Claude
    stabila tokens:
 
    ```
-   Hej [[PERSON_1_FIRST]]! Mitt personnummer är [[PERSONNUMMER_1]], ring
+   Hej [[PERSON_1_FIRST]]! Mitt personnummer är 18830702-6115, ring
    [[PHONE_1]]. Adress: [[ADDRESS_1]]. /[[PERSON_2]] [[EMAIL_3]]
    ```
 3. Kopplingen token → riktigt värde finns **bara i serverprocessens minne** och
@@ -64,11 +64,19 @@ Outlook ◀─Graph─── [ MCP-server: restore() ] ◀─tokens── Claude
 4. När Claude skriver ett utkast med tokens byts de tillbaka till riktiga
    värden innan utkastet sparas i Outlook. Okända tokens avvisas.
 
-**Detekteras:** e-postadresser, personnummer/samordningsnummer (Luhn-validerade),
-telefonnummer (svenska + internationella), IBAN, kortnummer (Luhn), IP-adresser,
-svenska gatuadresser och postnummer+ort, samt personnamn från mejlhuvuden,
-e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
-`REDACT_USE_NER=1` används även spaCys svenska NER-modell för namn i fritext.
+**Detekteras:** e-postadresser, telefonnummer (svenska + internationella), IBAN,
+kortnummer (Luhn), IP-adresser, svenska gatuadresser och postnummer+ort, samt
+personnamn från mejlhuvuden, e-postadresser (`fornamn.efternamn@`) och en valfri
+namnlista. Med `REDACT_USE_NER=1` används även spaCys svenska NER-modell för namn i fritext.
+
+**Personnummer** från Sverige (även samordningsnummer), Danmark (CPR), Norge
+(fødselsnummer, D-nummer) och Finland (henkilötunnus) ersätts inte med en token utan
+med ett **påhittat nummer i samma format, med födelseår på 1800-talet**, t.ex.
+`18830702-6115`. Ingen levande person kan ha det, och där formatet har kontrollsiffra
+är den giltig. Svenska nummer med bindestreck fångas även om kontrollsiffran är fel
+(felskrivna nummer är fortfarande personuppgifter). Tio siffror utan bindestreck kräver
+rätt kontrollsiffra, så att vanliga order- och telefonnummer inte tvättas i onödan.
+Fejknumret byts tillbaka till det riktiga om Claude använder det i ett utkast.
 
 ### Begränsningar – läs detta
 

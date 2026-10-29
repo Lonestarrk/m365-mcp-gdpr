@@ -2,7 +2,9 @@
 
 Everything that leaves this server towards the LLM passes through
 `Redactor.redact`. Personal data is swapped for stable tokens such as
-``[[PERSON_1]]`` or ``[[EMAIL_2]]``. The mapping token -> original value
+``[[PERSON_1]]`` or ``[[EMAIL_2]]``. Personal identity numbers are instead
+swapped for made-up numbers from the 1800s in the same national format
+(see `idnumbers`). The mapping token -> original value
 lives only in this process's memory (the `Vault`) and is never returned to
 the model. When the model writes a draft, `Redactor.restore` puts the real
 values back before the draft is sent to Microsoft Graph.
@@ -14,6 +16,8 @@ import re
 import threading
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
+
+from . import idnumbers
 
 TOKEN_RE = re.compile(r"\[\[([A-Z]+)_(\d+)(?:_(FIRST|LAST))?\]\]")
 
@@ -32,22 +36,6 @@ def _luhn_ok(digits: str) -> bool:
                 n -= 9
         total += n
     return total % 10 == 0
-
-
-def _valid_personnummer(match: str) -> bool:
-    digits = re.sub(r"\D", "", match)
-    if len(digits) == 12:
-        digits = digits[2:]
-    if len(digits) != 10:
-        return False
-    month = int(digits[2:4])
-    day = int(digits[4:6])
-    # Samordningsnummer adds 60 to the day.
-    if day > 60:
-        day -= 60
-    if not (1 <= month <= 12 and 1 <= day <= 31):
-        return False
-    return _luhn_ok(digits)
 
 
 def _valid_card(match: str) -> bool:
@@ -72,11 +60,6 @@ DETECTORS: list[Detector] = [
     Detector(
         "IBAN",
         re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b"),
-    ),
-    Detector(
-        "PERSONNUMMER",
-        re.compile(r"(?<![\d-])(?:19|20)?\d{6}[-+ ]?\d{4}(?![\d-])"),
-        _valid_personnummer,
     ),
     Detector(
         "CARD",
@@ -117,6 +100,8 @@ class Vault:
     _by_token: dict[str, str] = field(default_factory=dict)
     _counters: dict[str, int] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    # surrogate -> kind, for stand-ins that don't look like [[TOKEN]]
+    surrogates: dict[str, str] = field(default_factory=dict)
 
     def token_for(self, kind: str, value: str) -> str:
         key = (kind, value.casefold() if kind in ("EMAIL", "PERSON") else value)
@@ -128,6 +113,20 @@ class Vault:
             self._by_value[key] = token
             self._by_token[token] = value
             return token
+
+    def surrogate_for(self, kind: str, value: str, make: Callable[[], str]) -> str:
+        """A made-up stand-in for value, unique within this vault."""
+        key = (kind, re.sub(r"\D", "", value))
+        with self._lock:
+            if key in self._by_value:
+                return self._by_value[key]
+            surrogate = make()
+            while surrogate in self._by_token:
+                surrogate = make()
+            self._by_value[key] = surrogate
+            self._by_token[surrogate] = value
+            self.surrogates[surrogate] = kind
+            return surrogate
 
     def alias(self, token: str, value: str) -> None:
         """Register an extra token (e.g. first name of a person)."""
@@ -142,6 +141,7 @@ class Vault:
             self._by_value.clear()
             self._by_token.clear()
             self._counters.clear()
+            self.surrogates.clear()
 
 
 class Redactor:
@@ -200,6 +200,10 @@ class Redactor:
             return text or ""
         spans: list[tuple[int, int, str]] = []
 
+        for start, end, fmt in idnumbers.find(text):
+            value = text[start:end]
+            spans.append((start, end, self.vault.surrogate_for("PERSONNUMMER", value, fmt.surrogate)))
+
         for det in DETECTORS:
             for m in det.pattern.finditer(text):
                 value = m.group(0)
@@ -240,7 +244,22 @@ class Redactor:
                 return m.group(0)
             return value
 
-        return TOKEN_RE.sub(sub, text)
+        text = TOKEN_RE.sub(sub, text)
+        for surrogate in sorted(self.vault.surrogates, key=len, reverse=True):
+            if surrogate in text:
+                text = text.replace(surrogate, self.vault.lookup(surrogate) or surrogate)
+        return text
+
+    def placeholders(self, text: str) -> list[tuple[int, int, str, str, str | None]]:
+        """Tokens and surrogates in text: (start, end, placeholder, kind, original)."""
+        found = [
+            (m.start(), m.end(), m.group(0), m.group(1), self.vault.lookup(m.group(0)))
+            for m in TOKEN_RE.finditer(text)
+        ]
+        for surrogate, kind in list(self.vault.surrogates.items()):
+            for m in re.finditer(re.escape(surrogate), text):
+                found.append((m.start(), m.end(), surrogate, kind, self.vault.lookup(surrogate)))
+        return sorted(found)
 
 
 def _apply(text: str, spans: list[tuple[int, int, str]]) -> str:

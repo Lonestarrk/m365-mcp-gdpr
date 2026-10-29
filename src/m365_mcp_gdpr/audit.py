@@ -28,7 +28,7 @@ from importlib import resources
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from .redact import TOKEN_RE, Redactor
+from .redact import Redactor
 
 
 def _to_text(value: Any) -> str:
@@ -39,14 +39,16 @@ def _to_text(value: Any) -> str:
 
 
 def segments(text: str, redactor: Redactor) -> list[dict]:
-    """Split text into plain parts and tokens with their original values."""
+    """Split text into plain parts and placeholders with their original values."""
     out: list[dict] = []
     pos = 0
-    for m in TOKEN_RE.finditer(text):
-        if m.start() > pos:
-            out.append({"text": text[pos:m.start()]})
-        out.append({"token": m.group(0), "kind": m.group(1), "value": redactor.vault.lookup(m.group(0))})
-        pos = m.end()
+    for start, end, placeholder, kind, value in redactor.placeholders(text):
+        if start < pos:
+            continue
+        if start > pos:
+            out.append({"text": text[pos:start]})
+        out.append({"token": placeholder, "kind": kind, "value": value})
+        pos = end
     if pos < len(text):
         out.append({"text": text[pos:]})
     return out

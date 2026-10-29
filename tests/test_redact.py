@@ -29,7 +29,7 @@ def test_redacts_swedish_pii():
     ]:
         assert secret not in out, secret
     assert "[[PERSON_1_FIRST]]" in out
-    assert "[[PERSONNUMMER_1]]" in out
+    assert "personnummer är 18" in out  # replaced with a made-up 1800s number
     assert "[[EMAIL_" in out
 
 
@@ -58,8 +58,8 @@ def test_unknown_token_rejected():
 
 def test_invalid_numbers_not_redacted():
     r = Redactor()
-    # Fel kontrollsiffra respektive ogiltigt kortnummer ska lämnas orörda.
-    text = "Order 20240101-0001 och artikel 1234567890123"
+    # Ogiltigt datum respektive ogiltigt kortnummer ska lämnas orörda.
+    text = "Order 20241301-0001 och artikel 1234567890123"
     assert r.redact(text) == text
 
 
