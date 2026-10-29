@@ -93,7 +93,12 @@ Fejknumret byts tillbaka till det riktiga om Claude använder det i ett utkast.
 
 ### 1. App-registrering i Microsoft Entra ID
 
-1. Entra admin center → *App registrations* → *New registration*.
+Appregistreringen ger servern en identitet mot Microsoft (ett *client-ID*). Microsoft kräver
+det för alla program som loggar in mot Microsoft 365 för användarens räkning. Den behövs
+en gång per organisation, inte per användare. Om organisationen tillåter det (standard i
+Entra ID) kan en vanlig användare registrera appen själv; annars gör IT det.
+
+1. [Entra admin center](https://entra.microsoft.com) → *App registrations* → *New registration*.
 2. *Supported account types*: Endast den här organisationen.
 3. *Authentication* → *Add a platform* → **Mobile and desktop applications**, lägg till:
    - `http://localhost` (inloggning via webbläsare)
@@ -105,8 +110,9 @@ Fejknumret byts tillbaka till det riktiga om Claude använder det i ett utkast.
    `Sites.ReadWrite.All` för `sharepoint`, `Mail.ReadWrite` för `mail`,
    `Calendars.ReadWrite` för `calendar` och `Chat.Read`, `Team.ReadBasic.All`,
    `Channel.ReadBasic.All`, `ChannelMessage.Read.All` för `teams`.
-   `Sites.ReadWrite.All` och `ChannelMessage.Read.All` kräver admin consent. Behörigheterna är delegerade: servern
-   kommer bara åt det du själv har behörighet till.
+   Av dessa kräver bara `ChannelMessage.Read.All` godkännande av en admin; övriga kan
+   användaren godkänna själv vid inloggningen, om organisationen tillåter det.
+   Behörigheterna är delegerade: servern kommer bara åt det du själv har behörighet till.
 6. Notera *Application (client) ID* och *Directory (tenant) ID*.
 
 ### 2. Installera programmet
