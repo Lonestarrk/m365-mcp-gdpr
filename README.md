@@ -1,11 +1,11 @@
-# outlook-mcp-gdpr
+# m365-mcp-gdpr
 
-MCP-server som ger Claude åtkomst till en Outlook-/Microsoft 365-brevlåda via
-Microsoft Graph – **med pseudonymisering av personuppgifter innan något lämnar
-er maskin**.
+MCP-server som ger Claude åtkomst till Microsoft 365 – Outlook-brevlådan och en
+SharePoint-mapp för releaser – via Microsoft Graph, **med pseudonymisering av
+personuppgifter innan något lämnar er maskin**.
 
-Det är samma brevlåda som Microsoft 365 Copilot arbetar mot. Copilot har inget
-eget API för att läsa/skriva mejl, så servern pratar direkt med Microsoft Graph.
+Det är samma data som Microsoft 365 Copilot arbetar mot. Copilot har inget eget API
+för att läsa/skriva mejl, så servern pratar direkt med Microsoft Graph.
 
 ## Vad den kan
 
@@ -82,10 +82,10 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
 ### 2. Installera och logga in
 
 ```bash
-pip install git+https://github.com/Lonestarrk/outlook-mcp-gdpr
-export OUTLOOK_MCP_CLIENT_ID=<client-id>
-export OUTLOOK_MCP_TENANT_ID=<tenant-id>
-outlook-mcp-gdpr login
+pip install git+https://github.com/Lonestarrk/m365-mcp-gdpr
+export M365_MCP_CLIENT_ID=<client-id>
+export M365_MCP_TENANT_ID=<tenant-id>
+m365-mcp-gdpr login
 ```
 
 Inloggningen sker med ditt vanliga jobbkonto:
@@ -105,19 +105,19 @@ efter 90 dagar utan användning. Er IT kan ha regler (Conditional Access, "sign-
 frequency") som kräver ny inloggning oftare; det styrs av organisationen, inte av servern.
 
 Om du inte har loggat in i förväg öppnas inloggningen automatiskt första gången Claude
-använder servern. `outlook-mcp-gdpr logout` tar bort den sparade inloggningen.
-På en dator utan webbläsare: `outlook-mcp-gdpr login --device-code`.
+använder servern. `m365-mcp-gdpr logout` tar bort den sparade inloggningen.
+På en dator utan webbläsare: `m365-mcp-gdpr login --device-code`.
 
 ### 3. Koppla till Claude
 
 **Claude Code:**
 
 ```bash
-claude mcp add outlook \
-  -e OUTLOOK_MCP_CLIENT_ID=<client-id> \
-  -e OUTLOOK_MCP_TENANT_ID=<tenant-id> \
+claude mcp add m365 \
+  -e M365_MCP_CLIENT_ID=<client-id> \
+  -e M365_MCP_TENANT_ID=<tenant-id> \
   -e REDACT_ALLOWLIST="Matilda Foodtech,Stockholm" \
-  -- outlook-mcp-gdpr
+  -- m365-mcp-gdpr
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`):
@@ -125,11 +125,11 @@ claude mcp add outlook \
 ```json
 {
   "mcpServers": {
-    "outlook": {
-      "command": "outlook-mcp-gdpr",
+    "m365": {
+      "command": "m365-mcp-gdpr",
       "env": {
-        "OUTLOOK_MCP_CLIENT_ID": "<client-id>",
-        "OUTLOOK_MCP_TENANT_ID": "<tenant-id>",
+        "M365_MCP_CLIENT_ID": "<client-id>",
+        "M365_MCP_TENANT_ID": "<tenant-id>",
         "REDACT_ALLOWLIST": "Matilda Foodtech"
       }
     }
@@ -144,13 +144,13 @@ kollegor alltid hittar senaste versionen. Claude kan bara ladda upp till den
 konfigurerade mappen (och undermappar till den), aldrig någon annanstans.
 
 ```bash
-claude mcp add outlook \
-  -e OUTLOOK_MCP_CLIENT_ID=<client-id> \
-  -e OUTLOOK_MCP_TENANT_ID=<tenant-id> \
+claude mcp add m365 \
+  -e M365_MCP_CLIENT_ID=<client-id> \
+  -e M365_MCP_TENANT_ID=<tenant-id> \
   -e SHAREPOINT_SITE="matildafoodtech.sharepoint.com:/sites/Utveckling" \
   -e SHAREPOINT_FOLDER="Releases/MinApp" \
   -e SHAREPOINT_UPLOAD_ROOTS="$HOME/projekt/minapp/dist" \
-  -- outlook-mcp-gdpr
+  -- m365-mcp-gdpr
 ```
 
 Exempel i Claude Code: *"Bygg en release, zippa dist-mappen och ladda upp den till
@@ -161,19 +161,19 @@ Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
 
 | Variabel | Beskrivning |
 |---|---|
-| `OUTLOOK_MCP_CLIENT_ID` | Krävs. Client ID från app-registreringen |
-| `OUTLOOK_MCP_TENANT_ID` | Tenant-ID (standard `organizations`) |
-| `OUTLOOK_MCP_CACHE_DIR` | Var token-cachen sparas |
-| `OUTLOOK_MCP_LOGIN_HINT` | Ditt jobbmejl, förifyllt i inloggningsrutan |
-| `OUTLOOK_MCP_AUTO_LOGIN` | `0` = öppna aldrig inloggning automatiskt, kräv `login` i förväg |
-| `OUTLOOK_MCP_BROKER` | `0` = använd webbläsaren även där Windows/Mac-kontorutan finns |
+| `M365_MCP_CLIENT_ID` | Krävs. Client ID från app-registreringen |
+| `M365_MCP_TENANT_ID` | Tenant-ID (standard `organizations`) |
+| `M365_MCP_CACHE_DIR` | Var token-cachen sparas |
+| `M365_MCP_LOGIN_HINT` | Ditt jobbmejl, förifyllt i inloggningsrutan |
+| `M365_MCP_AUTO_LOGIN` | `0` = öppna aldrig inloggning automatiskt, kräv `login` i förväg |
+| `M365_MCP_BROKER` | `0` = använd webbläsaren även där Windows/Mac-kontorutan finns |
 | `REDACT_ALLOWLIST` / `REDACT_ALLOWLIST_FILE` | Termer som *inte* ska tvättas (företagsnamn, orter, produkter) |
 | `REDACT_NAMES` / `REDACT_NAMES_FILE` | Extra namn som alltid ska tvättas (t.ex. kundregister-export), ett per rad |
 | `SHAREPOINT_SITE` | Webbplats som `värd:/sites/Namn`, t.ex. `matildafoodtech.sharepoint.com:/sites/Utveckling` |
 | `SHAREPOINT_DRIVE` | Dokumentbibliotekets namn (standard: webbplatsens standardbibliotek) |
 | `SHAREPOINT_FOLDER` | Mappen releaser laddas upp till, t.ex. `Releases/MinApp` |
 | `SHAREPOINT_UPLOAD_ROOTS` | Valfritt. Kommaseparerade lokala mappar som får laddas upp från – rekommenderas, så att Claude inte kan ladda upp andra filer |
-| `REDACT_USE_NER` | `1` = aktivera spaCy-NER. Kräver `pip install 'outlook-mcp-gdpr[ner]'` och `python -m spacy download sv_core_news_sm` |
+| `REDACT_USE_NER` | `1` = aktivera spaCy-NER. Kräver `pip install 'm365-mcp-gdpr[ner]'` och `python -m spacy download sv_core_news_sm` |
 
 ## Utveckling
 

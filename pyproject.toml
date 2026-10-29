@@ -1,7 +1,7 @@
 [project]
-name = "outlook-mcp-gdpr"
+name = "m365-mcp-gdpr"
 version = "0.1.0"
-description = "MCP-server för Outlook/Microsoft 365 med GDPR-pseudonymisering av personuppgifter"
+description = "MCP-server för Microsoft 365 (Outlook och SharePoint) med GDPR-pseudonymisering av personuppgifter"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,7 +20,7 @@ broker = ["msal[broker]>=1.33,<2"]
 dev = ["pytest>=8"]
 
 [project.scripts]
-outlook-mcp-gdpr = "outlook_mcp_gdpr.server:main"
+m365-mcp-gdpr = "m365_mcp_gdpr.server:main"
 
 [build-system]
 requires = ["hatchling"]

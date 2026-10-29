@@ -3,9 +3,9 @@ import json
 import httpx
 import pytest
 
-from outlook_mcp_gdpr import graph as graph_mod
-from outlook_mcp_gdpr import server
-from outlook_mcp_gdpr.graph import Graph
+from m365_mcp_gdpr import graph as graph_mod
+from m365_mcp_gdpr import server
+from m365_mcp_gdpr.graph import Graph
 
 
 class FakeAuth:

@@ -32,7 +32,7 @@ Servern kan också ladda upp releasefiler till en förbestämd SharePoint-mapp
 som en enda zip-fil innan uppladdning.
 """
 
-mcp = MCPServer("outlook-gdpr", instructions=INSTRUCTIONS)
+mcp = MCPServer("m365-gdpr", instructions=INSTRUCTIONS)
 
 
 def _load_list(env: str) -> list[str]:

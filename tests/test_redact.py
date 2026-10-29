@@ -1,6 +1,6 @@
 import pytest
 
-from outlook_mcp_gdpr.redact import Redactor, UnknownTokenError
+from m365_mcp_gdpr.redact import Redactor, UnknownTokenError
 
 MAIL = """Hej Anna!
 

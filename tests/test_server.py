@@ -3,8 +3,8 @@ import json
 import httpx
 import pytest
 
-from outlook_mcp_gdpr import server
-from outlook_mcp_gdpr.graph import Graph
+from m365_mcp_gdpr import server
+from m365_mcp_gdpr.graph import Graph
 
 MESSAGE = {
     "id": "AAMk1",

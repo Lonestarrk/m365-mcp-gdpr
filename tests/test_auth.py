@@ -1,6 +1,6 @@
 import pytest
 
-from outlook_mcp_gdpr import graph
+from m365_mcp_gdpr import graph
 
 
 class FakeApp:
@@ -28,8 +28,8 @@ class FakeApp:
 
 @pytest.fixture
 def auth(monkeypatch, tmp_path):
-    monkeypatch.setenv("OUTLOOK_MCP_CLIENT_ID", "cid")
-    monkeypatch.setenv("OUTLOOK_MCP_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("M365_MCP_CLIENT_ID", "cid")
+    monkeypatch.setenv("M365_MCP_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(graph.msal, "PublicClientApplication", FakeApp)
     return graph.Auth()
 
@@ -59,7 +59,7 @@ def test_broker_only_when_installed(monkeypatch):
 
 
 def test_cache_falls_back_to_private_file(monkeypatch, tmp_path):
-    monkeypatch.setenv("OUTLOOK_MCP_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("M365_MCP_CACHE_DIR", str(tmp_path))
 
     def no_secret_store(location):
         raise RuntimeError("libsecret saknas")

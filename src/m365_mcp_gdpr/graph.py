@@ -35,7 +35,7 @@ class AuthRequired(RuntimeError):
 
 
 def _cache_dir() -> Path:
-    base = Path(os.environ.get("OUTLOOK_MCP_CACHE_DIR", Path.home() / ".outlook-mcp-gdpr"))
+    base = Path(os.environ.get("M365_MCP_CACHE_DIR", Path.home() / ".m365-mcp-gdpr"))
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     return base
 
@@ -80,11 +80,11 @@ class Auth:
     """
 
     def __init__(self) -> None:
-        client_id = os.environ.get("OUTLOOK_MCP_CLIENT_ID")
+        client_id = os.environ.get("M365_MCP_CLIENT_ID")
         if not client_id:
-            raise RuntimeError("OUTLOOK_MCP_CLIENT_ID saknas (Entra ID app-registrering)")
-        tenant = os.environ.get("OUTLOOK_MCP_TENANT_ID", "organizations")
-        self._broker = _broker_available() and os.environ.get("OUTLOOK_MCP_BROKER", "1") != "0"
+            raise RuntimeError("M365_MCP_CLIENT_ID saknas (Entra ID app-registrering)")
+        tenant = os.environ.get("M365_MCP_TENANT_ID", "organizations")
+        self._broker = _broker_available() and os.environ.get("M365_MCP_BROKER", "1") != "0"
         self._app = msal.PublicClientApplication(
             client_id,
             authority=f"https://login.microsoftonline.com/{tenant}",
@@ -92,8 +92,8 @@ class Auth:
             enable_broker_on_windows=self._broker,
             enable_broker_on_mac=self._broker,
         )
-        self._login_hint = os.environ.get("OUTLOOK_MCP_LOGIN_HINT") or None
-        self._auto_login = os.environ.get("OUTLOOK_MCP_AUTO_LOGIN", "1") != "0"
+        self._login_hint = os.environ.get("M365_MCP_LOGIN_HINT") or None
+        self._auto_login = os.environ.get("M365_MCP_AUTO_LOGIN", "1") != "0"
         self._lock = threading.Lock()
 
     def _silent(self) -> dict | None:
@@ -107,7 +107,7 @@ class Auth:
             result = self._silent()
             if not result or "access_token" not in result:
                 if not self._auto_login:
-                    raise AuthRequired("Inte inloggad. Kör 'outlook-mcp-gdpr login' i en terminal först.")
+                    raise AuthRequired("Inte inloggad. Kör 'm365-mcp-gdpr login' i en terminal först.")
                 result = self.interactive_login()
             return result["access_token"]
 

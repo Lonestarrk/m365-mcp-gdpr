@@ -265,7 +265,7 @@ def _load_ner():
         import spacy  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise RuntimeError(
-            "REDACT_USE_NER=1 kräver 'pip install outlook-mcp-gdpr[ner]' och "
+            "REDACT_USE_NER=1 kräver 'pip install m365-mcp-gdpr[ner]' och "
             "'python -m spacy download sv_core_news_sm'"
         ) from exc
     return spacy.load("sv_core_news_sm")
