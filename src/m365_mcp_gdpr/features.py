@@ -12,6 +12,8 @@ import os
 # feature -> delegated Microsoft Graph scopes it needs
 SCOPES: dict[str, list[str]] = {
     "mail": ["Mail.ReadWrite"],
+    "calendar": ["Calendars.ReadWrite"],
+    "teams": ["Chat.Read", "Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Read.All"],
     "sharepoint": ["Sites.ReadWrite.All"],
 }
 BASE_SCOPES = ["User.Read"]

@@ -10,6 +10,8 @@ from m365_mcp_gdpr import features, graph
 
 MAIL_TOOLS = {"list_folders", "read_message", "create_draft"}
 SP_TOOLS = {"sharepoint_upload_release", "sharepoint_list_releases"}
+CAL_TOOLS = {"calendar_list_events", "calendar_create_event"}
+TEAMS_TOOLS = {"teams_list_chats", "teams_read_channel"}
 
 
 def test_default_is_sharepoint_only(monkeypatch):
@@ -21,7 +23,7 @@ def test_parse_and_all(monkeypatch):
     monkeypatch.setenv("M365_MCP_FEATURES", " Mail , sharepoint,mail ")
     assert features.enabled() == ("mail", "sharepoint")
     monkeypatch.setenv("M365_MCP_FEATURES", "all")
-    assert features.enabled() == ("mail", "sharepoint")
+    assert features.enabled() == ("mail", "calendar", "teams", "sharepoint")
 
 
 def test_unknown_feature(monkeypatch):
@@ -34,6 +36,8 @@ def test_scopes_follow_features():
     assert features.scopes(("sharepoint",)) == ["Sites.ReadWrite.All", "User.Read"]
     assert "Mail.ReadWrite" not in features.scopes(("sharepoint",))
     assert features.scopes(("mail",)) == ["Mail.ReadWrite", "User.Read"]
+    assert features.scopes(("calendar",)) == ["Calendars.ReadWrite", "User.Read"]
+    assert "Chat.ReadWrite" not in features.scopes(("teams",))  # read-only
 
 
 def test_auth_requests_only_enabled_scopes(monkeypatch, tmp_path):
@@ -77,10 +81,11 @@ def _listed_tools(feature_env: str | None) -> set[str]:
 @pytest.mark.parametrize(
     "env, present, absent",
     [
-        (None, SP_TOOLS, MAIL_TOOLS),
-        ("sharepoint", SP_TOOLS, MAIL_TOOLS),
-        ("mail", MAIL_TOOLS, SP_TOOLS),
-        ("all", MAIL_TOOLS | SP_TOOLS, set()),
+        (None, SP_TOOLS, MAIL_TOOLS | CAL_TOOLS | TEAMS_TOOLS),
+        ("sharepoint", SP_TOOLS, MAIL_TOOLS | CAL_TOOLS | TEAMS_TOOLS),
+        ("mail", MAIL_TOOLS, SP_TOOLS | CAL_TOOLS | TEAMS_TOOLS),
+        ("calendar,teams", CAL_TOOLS | TEAMS_TOOLS, MAIL_TOOLS | SP_TOOLS),
+        ("all", MAIL_TOOLS | SP_TOOLS | CAL_TOOLS | TEAMS_TOOLS, set()),
     ],
 )
 def test_server_exposes_only_enabled_tools(env, present, absent):

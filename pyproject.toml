@@ -1,7 +1,7 @@
 [project]
 name = "m365-mcp-gdpr"
 version = "0.1.0"
-description = "MCP-server för Microsoft 365 (Outlook och SharePoint) med GDPR-pseudonymisering av personuppgifter"
+description = "MCP-server för Microsoft 365 (Outlook, kalender, Teams, SharePoint) med GDPR-pseudonymisering av personuppgifter"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

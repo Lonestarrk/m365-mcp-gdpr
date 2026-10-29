@@ -18,6 +18,7 @@ from mcp.server.mcpserver import MCPServer
 from . import audit, features
 from .graph import Auth, Graph
 from .redact import Redactor
+from .text import html_to_text
 
 INSTRUCTIONS = """\
 Den här servern ger åtkomst till delar av användarens Microsoft 365 via Microsoft Graph.
@@ -29,6 +30,12 @@ eller [[EMAIL_2]]. Försök aldrig gissa vad som döljs bakom en token.
 När du skriver utkast eller söker: använd tokens ordagrant, så ersätts de med
 riktiga värden innan utkastet sparas i Outlook. Servern kan inte skicka mejl –
 den skapar endast utkast som användaren själv granskar och skickar.
+
+Kalender: du kan läsa kalendern och boka tid för användaren själv, men inte skapa
+möten med deltagare (det skulle skicka inbjudningar). Tider anges i ISO 8601.
+
+Teams: du kan läsa chattar och kanaler men inte skriva. Namn och innehåll är
+pseudonymiserade på samma sätt som mejl.
 
 SharePoint: releasefiler kan laddas upp till en förbestämd mapp
 (sharepoint_upload_release) och listas därifrån. Packa gärna en release
@@ -257,6 +264,175 @@ def delete_draft(draft_id: str) -> str:
     _require_draft(draft_id)
     graph().delete(draft_id)
     return "ok"
+
+
+# ---- calendar -------------------------------------------------------------
+
+def _event(e: dict, full: bool = False) -> dict[str, Any]:
+    people = [e.get("organizer")] + (e.get("attendees") or [])
+    for p in people:
+        ea = (p or {}).get("emailAddress") or {}
+        R.register_person(ea.get("name"), ea.get("address"))
+    out: dict[str, Any] = {
+        "id": e["id"],
+        "subject": R.redact(e.get("subject")),
+        "start": e.get("start"),
+        "end": e.get("end"),
+        "all_day": e.get("isAllDay"),
+        "cancelled": e.get("isCancelled"),
+        "online": e.get("isOnlineMeeting"),
+        "show_as": e.get("showAs"),
+        "location": R.redact((e.get("location") or {}).get("displayName")),
+        "organizer": _addr(e.get("organizer")),
+        "i_am_organizer": e.get("isOrganizer"),
+        "attendees": [
+            {"who": _addr(a), "response": ((a.get("status") or {}).get("response"))}
+            for a in e.get("attendees") or []
+        ],
+    }
+    if full:
+        out["body"] = R.redact((e.get("body") or {}).get("content"))
+    else:
+        out["preview"] = R.redact(e.get("bodyPreview"))
+    return out
+
+
+@tool("calendar")
+def calendar_list_events(start: str, end: str, top: int = 50) -> list[dict]:
+    """Lista kalenderhändelser mellan start och end (ISO 8601, t.ex. 2026-11-02T00:00:00).
+
+    Utan tidszon i tiden tolkas den som UTC, om inte M365_MCP_TIMEZONE är satt.
+    """
+    return [_event(e) for e in graph().calendar_view(start, end, max(1, min(top, 100)))]
+
+
+@tool("calendar")
+def calendar_get_event(event_id: str) -> dict:
+    """Läs en kalenderhändelse med beskrivning (pseudonymiserad)."""
+    return _event(graph().get_event(event_id), full=True)
+
+
+@tool("calendar")
+def calendar_create_event(
+    subject: str,
+    start: str,
+    end: str,
+    body: str | None = None,
+    location: str | None = None,
+    show_as: str = "busy",
+    time_zone: str | None = None,
+) -> dict:
+    """Boka tid i användarens egen kalender, t.ex. fokustid. Bjuder aldrig in någon.
+
+    start/end: ISO 8601 utan tidszon, t.ex. 2026-11-02T09:00:00.
+    time_zone: t.ex. "Europe/Stockholm" (standard: M365_MCP_TIMEZONE eller UTC).
+    show_as: free, tentative, busy, oof eller workingElsewhere.
+    """
+    tz = time_zone or os.environ.get("M365_MCP_TIMEZONE") or "UTC"
+    payload: dict[str, Any] = {
+        "subject": R.restore(subject),
+        "start": {"dateTime": start, "timeZone": tz},
+        "end": {"dateTime": end, "timeZone": tz},
+        "showAs": show_as,
+        "attendees": [],
+    }
+    if body:
+        payload["body"] = {"contentType": "Text", "content": R.restore(body)}
+    if location:
+        payload["location"] = {"displayName": R.restore(location)}
+    e = graph().create_event(payload)
+    return {"id": e["id"], "status": "Bokat i din kalender. Inga inbjudningar skickades."}
+
+
+@tool("calendar")
+def calendar_delete_event(event_id: str) -> str:
+    """Ta bort en händelse som användaren själv skapat och som saknar deltagare.
+
+    Möten med deltagare tas inte bort, eftersom det skulle skicka avbokningar.
+    """
+    e = graph().get_event(event_id)
+    if not e.get("isOrganizer"):
+        raise ValueError("Du är inte organisatör för händelsen, så den tas inte bort.")
+    if e.get("attendees"):
+        raise ValueError("Händelsen har deltagare. Ta bort den i Outlook, så att du ser avbokningen som skickas.")
+    graph().delete_event(event_id)
+    return "ok"
+
+
+# ---- Teams ----------------------------------------------------------------
+
+def _teams_person(identity: dict | None) -> str:
+    user = (identity or {}).get("user") or {}
+    name = user.get("displayName")
+    if not name:
+        return ""
+    R.register_person(name)
+    return R.redact(name)
+
+
+def _teams_message(m: dict) -> dict[str, Any]:
+    sender = _teams_person(m.get("from")) or ("system" if m.get("messageType") != "message" else "")
+    body = m.get("body") or {}
+    content = body.get("content")
+    text = html_to_text(content) if body.get("contentType") == "html" else (content or "")
+    return {
+        "id": m.get("id"),
+        "time": m.get("createdDateTime"),
+        "from": sender,
+        "text": R.redact(text),
+        "deleted": m.get("deletedDateTime") is not None,
+    }
+
+
+@tool("teams")
+def teams_list_chats(top: int = 20) -> list[dict]:
+    """Lista dina Teams-chattar, senast aktiva först."""
+    chats = []
+    for c in graph().list_chats(max(1, min(top, 50))):
+        members = []
+        for mem in c.get("members") or []:
+            name = mem.get("displayName")
+            if name:
+                R.register_person(name, mem.get("email"))
+                members.append(R.redact(name))
+        chats.append({
+            "id": c["id"],
+            "type": c.get("chatType"),
+            "topic": R.redact(c.get("topic")),
+            "members": members,
+            "last_activity": c.get("lastUpdatedDateTime"),
+        })
+    return chats
+
+
+@tool("teams")
+def teams_read_chat(chat_id: str, top: int = 30) -> list[dict]:
+    """Läs de senaste meddelandena i en chatt (pseudonymiserade), nyast först."""
+    return [_teams_message(m) for m in graph().chat_messages(chat_id, max(1, min(top, 50)))]
+
+
+@tool("teams")
+def teams_list_teams() -> list[dict]:
+    """Lista de team du är med i."""
+    return [
+        {"id": t["id"], "name": R.redact(t.get("displayName")), "description": R.redact(t.get("description"))}
+        for t in graph().joined_teams()
+    ]
+
+
+@tool("teams")
+def teams_list_channels(team_id: str) -> list[dict]:
+    """Lista kanalerna i ett team."""
+    return [
+        {"id": c["id"], "name": R.redact(c.get("displayName")), "description": R.redact(c.get("description"))}
+        for c in graph().channels(team_id)
+    ]
+
+
+@tool("teams")
+def teams_read_channel(team_id: str, channel_id: str, top: int = 30) -> list[dict]:
+    """Läs de senaste inläggen i en kanal (pseudonymiserade), nyast först."""
+    return [_teams_message(m) for m in graph().channel_messages(team_id, channel_id, max(1, min(top, 50)))]
 
 
 # ---- SharePoint releases --------------------------------------------------

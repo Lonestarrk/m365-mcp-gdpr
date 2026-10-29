@@ -1,6 +1,6 @@
 # m365-mcp-gdpr
 
-MCP-server som ger Claude åtkomst till Microsoft 365 – Outlook-brevlådan och en
+MCP-server som ger Claude åtkomst till Microsoft 365 – Outlook, kalender, Teams och en
 SharePoint-mapp för releaser – via Microsoft Graph, **med pseudonymisering av
 personuppgifter innan något lämnar er maskin**.
 
@@ -20,13 +20,27 @@ Servern är uppdelad i delar som slås på var för sig med `M365_MCP_FEATURES`
 | `mail` | `read_message` | Läs ett mejl (bilagors innehåll hämtas inte) |
 | `mail` | `mark_read`, `flag_message`, `set_categories`, `move_message` | Administrera |
 | `mail` | `create_draft`, `create_reply_draft`, `update_draft`, `delete_draft` | Utkast |
+| `calendar` | `calendar_list_events`, `calendar_get_event` | Läs kalendern för en period, eller en händelse med beskrivning |
+| `calendar` | `calendar_create_event` | Boka tid i din egen kalender (t.ex. fokustid) – aldrig med deltagare |
+| `calendar` | `calendar_delete_event` | Ta bort egen händelse utan deltagare |
+| `teams` | `teams_list_chats`, `teams_read_chat` | Lista chattar och läs meddelanden |
+| `teams` | `teams_list_teams`, `teams_list_channels`, `teams_read_channel` | Lista team och kanaler, läs inlägg |
 | `sharepoint` | `sharepoint_upload_release` | Ladda upp en lokal fil (t.ex. release-zip) till en förbestämd SharePoint-mapp |
 | `sharepoint` | `sharepoint_list_releases` | Lista filer i release-mappen, med länkar |
 
 Valfritt: en lokal [granskningssida](#granskningssida-valfri) som visar exakt vad Claude får.
 
-Servern **kan inte skicka mejl**. Den begär aldrig `Mail.Send`, så den saknar tekniskt
-behörighet att skicka. Alla utkast granskas och skickas av en människa i Outlook. `delete_draft` vägrar radera något som inte är ett utkast.
+**Servern skickar aldrig något till andra personer.** Allt som når någon annan granskas
+och skickas av en människa:
+
+- **Mejl:** bara utkast. Servern begär aldrig `Mail.Send`, så den saknar behörighet att
+  skicka. `delete_draft` vägrar radera något som inte är ett utkast.
+- **Kalender:** bara tid i din egen kalender. Möten med deltagare skapas inte (det skickar
+  inbjudningar), och möten med deltagare raderas inte (det skickar avbokningar).
+- **Teams:** bara läsning. Teams har inga utkast, så servern begär ingen skrivbehörighet.
+
+Namn, deltagare, platser och meddelandetext i mejl, kalender och Teams tvättas på
+samma sätt innan de når Claude.
 
 ## Hur GDPR-tvätten fungerar
 
@@ -80,8 +94,10 @@ e-postadresser (`fornamn.efternamn@`) och en valfri namnlista. Med
 4. *Authentication* → *Allow public client flows* = **Yes** (behövs bara för `--device-code`).
 5. *API permissions* → Microsoft Graph → **Delegated**: `User.Read` plus behörigheten
    för varje del ni ska använda (se [Välja delar](#välja-delar-av-microsoft-365)):
-   `Sites.ReadWrite.All` för `sharepoint`, `Mail.ReadWrite` för `mail`.
-   `Sites.ReadWrite.All` kräver admin consent. Behörigheterna är delegerade: servern
+   `Sites.ReadWrite.All` för `sharepoint`, `Mail.ReadWrite` för `mail`,
+   `Calendars.ReadWrite` för `calendar` och `Chat.Read`, `Team.ReadBasic.All`,
+   `Channel.ReadBasic.All`, `ChannelMessage.Read.All` för `teams`.
+   `Sites.ReadWrite.All` och `ChannelMessage.Read.All` kräver admin consent. Behörigheterna är delegerade: servern
    kommer bara åt det du själv har behörighet till.
 6. Notera *Application (client) ID* och *Directory (tenant) ID*.
 
@@ -200,7 +216,20 @@ tillgång till:
 |---|---|
 | `sharepoint` (standard) | Uppladdning och listning av releaser i en SharePoint-mapp |
 | `mail` | Läsa, organisera och skriva utkast i Outlook, med GDPR-tvätt |
-| `mail,sharepoint` eller `all` | Båda |
+| `calendar` | Läsa kalendern och boka tid för dig själv, med GDPR-tvätt |
+| `teams` | Läsa chattar och kanaler, med GDPR-tvätt |
+| t.ex. `sharepoint,calendar` | Flera delar, kommaseparerat |
+| `all` | Allt ovan |
+
+Behörigheter per del:
+
+| Del | Microsoft Graph-behörighet (delegerad) |
+|---|---|
+| `sharepoint` | `Sites.ReadWrite.All` |
+| `mail` | `Mail.ReadWrite` |
+| `calendar` | `Calendars.ReadWrite` |
+| `teams` | `Chat.Read`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All` |
+| alltid | `User.Read` |
 
 En del som inte är påslagen är avstängd på två nivåer:
 
@@ -267,7 +296,8 @@ Filer över 4 MB laddas upp i delar, så stora releaser fungerar.
 | `SHAREPOINT_DRIVE` | Dokumentbibliotekets namn (standard: webbplatsens standardbibliotek) |
 | `SHAREPOINT_FOLDER` | Mappen releaser laddas upp till, t.ex. `Releases/MinApp` |
 | `SHAREPOINT_UPLOAD_ROOTS` | Valfritt. Kommaseparerade lokala mappar som får laddas upp från – rekommenderas, så att Claude inte kan ladda upp andra filer |
-| `M365_MCP_FEATURES` | Vilka delar som är påslagna: `sharepoint` (standard), `mail` eller `all` (se ovan) |
+| `M365_MCP_FEATURES` | Vilka delar som är påslagna: `sharepoint` (standard), `mail`, `calendar`, `teams` eller `all` (se ovan) |
+| `M365_MCP_TIMEZONE` | Tidszon för kalendern, t.ex. `Europe/Stockholm` (standard: UTC) |
 | `M365_MCP_AUDIT` | `1` = starta granskningssidan (se ovan) |
 | `M365_MCP_AUDIT_PORT` | Fast port för granskningssidan (standard: slumpad ledig port) |
 | `M365_MCP_AUDIT_OPEN` | `0` = öppna inte webbläsaren automatiskt; länken skrivs i serverns logg |

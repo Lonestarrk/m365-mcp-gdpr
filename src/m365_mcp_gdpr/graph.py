@@ -31,6 +31,17 @@ SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024
 TEXT_BODY = {"Prefer": 'outlook.body-content-type="text"'}
 
 
+def _prefer(text_body: bool = False) -> dict[str, str]:
+    """Prefer header for calendar calls: optional local time zone, plain-text bodies."""
+    prefs = []
+    tz = os.environ.get("M365_MCP_TIMEZONE")
+    if tz:
+        prefs.append(f'outlook.timezone="{tz}"')
+    if text_body:
+        prefs.append('outlook.body-content-type="text"')
+    return {"Prefer": ", ".join(prefs)} if prefs else {}
+
+
 class AuthRequired(RuntimeError):
     pass
 
@@ -222,6 +233,53 @@ class Graph:
 
     def delete(self, message_id: str) -> None:
         self.request("DELETE", f"/me/messages/{message_id}")
+
+    # ---- calendar -----------------------------------------------------
+
+    _EVENT_FIELDS = (
+        "id,subject,start,end,location,organizer,attendees,isAllDay,isCancelled,"
+        "isOnlineMeeting,isOrganizer,showAs,bodyPreview"
+    )
+
+    def calendar_view(self, start: str, end: str, top: int) -> list[dict]:
+        params = {"startDateTime": start, "endDateTime": end, "$top": top,
+                  "$select": self._EVENT_FIELDS, "$orderby": "start/dateTime"}
+        return self.request("GET", "/me/calendarView", params=params, headers=_prefer())["value"]
+
+    def get_event(self, event_id: str) -> dict:
+        return self.request(
+            "GET", f"/me/events/{event_id}",
+            params={"$select": self._EVENT_FIELDS + ",body"}, headers=_prefer(text_body=True),
+        )
+
+    def create_event(self, payload: dict) -> dict:
+        return self.request("POST", "/me/events", json=payload)
+
+    def delete_event(self, event_id: str) -> None:
+        self.request("DELETE", f"/me/events/{event_id}")
+
+    # ---- Teams --------------------------------------------------------
+
+    def list_chats(self, top: int) -> list[dict]:
+        params = {"$top": top, "$expand": "members", "$orderby": "lastMessagePreview/createdDateTime desc"}
+        return self.request("GET", "/me/chats", params=params)["value"]
+
+    def chat_messages(self, chat_id: str, top: int) -> list[dict]:
+        params = {"$top": top, "$orderby": "createdDateTime desc"}
+        return self.request("GET", f"/me/chats/{chat_id}/messages", params=params)["value"]
+
+    def joined_teams(self) -> list[dict]:
+        return self.request("GET", "/me/joinedTeams", params={"$select": "id,displayName,description"})["value"]
+
+    def channels(self, team_id: str) -> list[dict]:
+        return self.request(
+            "GET", f"/teams/{team_id}/channels", params={"$select": "id,displayName,description"}
+        )["value"]
+
+    def channel_messages(self, team_id: str, channel_id: str, top: int) -> list[dict]:
+        return self.request(
+            "GET", f"/teams/{team_id}/channels/{channel_id}/messages", params={"$top": top}
+        )["value"]
 
     # ---- SharePoint ---------------------------------------------------
 
